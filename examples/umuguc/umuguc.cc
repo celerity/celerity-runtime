@@ -129,6 +129,8 @@ using clk = std::chrono::steady_clock;
  *  - This is because we have a lot of per-device and per-node buffers, with the latter also sometimes being duplicated across all devices.
  *  - Maybe some of these could be reused, since they typically have the same allocation shape
  *  - Also look into freeing buffers that are no longer needed
+ *  - We could also try and be more conservative with things like the "lower rank counts", which in most cases probably don't to allocate the full local
+ *    bounding box
  *
  * The other big problem is that besides shape factor calculation, we spend most of the time calculating the written ranges for each device on the host.
  *  - Since this is inherently a sequential operation, I don't think we can move it to the device
@@ -189,7 +191,8 @@ std::optional<T> get_arg(const std::string_view flag, int* argc, char** argv[]) 
 
 int main(int argc, char* argv[]) {
 	const auto usage = [&]() {
-		fmt::print(stderr, "Usage: {} <input_file> [--write-output] [--duplicate-input <factor>] [--swap-xy] [--precise-timings]\n", argv[0]);
+		fmt::print(
+		    stderr, "Usage: {} <input_file> [--write-output] [--duplicate-input <factor>] [--swap-xy] [--precise-timings] [--initialize-buffers]\n", argv[0]);
 		exit(EXIT_FAILURE);
 	};
 	if(argc < 2) usage();
@@ -204,6 +207,7 @@ int main(int argc, char* argv[]) {
 	// to work (somewhat) efficiently; we may have to rotate some files.
 	const bool swap_xy = get_flag("--swap-xy", &argc, &argv);
 	const bool precise_timings = get_flag("--precise-timings", &argc, &argv);
+	const bool initialize_buffers = get_flag("--initialize-buffers", &argc, &argv);
 	if(argc != 1) usage();
 
 	std::ifstream input(filename, std::ios::binary);
@@ -445,8 +449,8 @@ int main(int argc, char* argv[]) {
 		write_tiles_geometry.assigned_chunks.push_back({chunks[i].get_subrange(), (i / num_devices), (i % num_devices)});
 	}
 
-	celerity::buffer<uint32_t, 3> per_device_tile_point_counts({num_ranks * num_devices, global_grid_size[0], global_grid_size[1]});
-	celerity::buffer<uint32_t, 3> per_rank_tile_point_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
+	celerity::buffer<uint32_t, 3> per_device_point_counts({num_ranks * num_devices, global_grid_size[0], global_grid_size[1]});
+	celerity::buffer<uint32_t, 3> per_rank_point_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
 	// Each rank constructs its own copy of the global counts within its local bounding box
 	// This means incorporating counts from all other ranks that have an overlapping bounding box
 	celerity::buffer<uint32_t, 3> per_rank_global_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
@@ -470,15 +474,15 @@ int main(int argc, char* argv[]) {
 	celerity::buffer<umuguc_point3d, 1> tiles_storage(global_num_points);
 	celerity::buffer<sycl::double3, 1> shape_factors(global_num_points);
 
-	celerity::debug::set_buffer_name(per_device_tile_point_counts, "per device tile point counts");
-	celerity::debug::set_buffer_name(per_rank_tile_point_counts, "per rank tile point counts");
+	celerity::debug::set_buffer_name(per_device_point_counts, "per device point counts");
+	celerity::debug::set_buffer_name(per_rank_point_counts, "per rank point counts");
 	celerity::debug::set_buffer_name(per_rank_global_counts, "per rank global counts");
 	celerity::debug::set_buffer_name(per_rank_lower_rank_counts, "per rank lower rank counts");
 	celerity::debug::set_buffer_name(per_rank_cumulative_counts, "per rank cumulative counts");
 	celerity::debug::set_buffer_name(global_row_sums, "global row sums");
 	celerity::debug::set_buffer_name(per_rank_add_to_prefix_sum, "per rank add to prefix sum");
 	celerity::debug::set_buffer_name(per_device_write_offsets, "per device write offsets");
-	// celerity::debug::set_buffer_name(global_cumulative_counts, "global cumulative counts");
+	celerity::debug::set_buffer_name(global_cumulative_counts, "global cumulative counts");
 	celerity::debug::set_buffer_name(tiles_storage, "tiles storage");
 	celerity::debug::set_buffer_name(shape_factors, "shape factors");
 
@@ -516,6 +520,60 @@ int main(int argc, char* argv[]) {
 		return accesses;
 	};
 
+	// Initialize most buffers
+	// For the tile storage buffer we unfortunately don't know the accessed range yet
+	if(initialize_buffers) {
+		celerity::custom_task_geometry<3> all_devices_geo;
+		for(size_t i = 0; i < num_devices; ++i) {
+			all_devices_geo.assigned_chunks.push_back({device_slice(i), rank, i});
+		}
+		queue.submit([&](celerity::handler& cgh) {
+			celerity::accessor device_point_counts(
+			    per_device_point_counts, cgh, access_device_slices(all_devices_geo), celerity::write_only, celerity::no_init);
+			// Needed on all devices for shape factor calculation
+			celerity::accessor rank_global_counts(
+			    per_rank_global_counts, cgh, access_local_rank_slice(all_devices_geo), celerity::write_only, celerity::no_init);
+			// Needed on all devices for per-device write offset calculation
+			celerity::accessor rank_lower_rank_counts(
+			    per_rank_lower_rank_counts, cgh, access_local_rank_slice(all_devices_geo), celerity::write_only, celerity::no_init);
+			celerity::accessor rank_cumulative_counts(
+			    per_rank_cumulative_counts, cgh, access_local_rank_slice(all_devices_geo), celerity::write_only, celerity::no_init);
+			celerity::accessor device_write_offsets(
+			    per_device_write_offsets, cgh, access_device_slices(all_devices_geo), celerity::write_only, celerity::no_init);
+			cgh.parallel_for(all_devices_geo, [=](celerity::id<3>) {
+				(void)device_point_counts;
+				(void)rank_global_counts;
+				(void)rank_lower_rank_counts;
+				(void)rank_cumulative_counts;
+				(void)device_write_offsets;
+			});
+		});
+
+		queue.submit([&](celerity::handler& cgh) {
+			celerity::custom_task_geometry<3> device_0_geo;
+			device_0_geo.assigned_chunks.push_back({device_slice(0), rank, 0});
+			celerity::accessor rank_point_counts(per_rank_point_counts, cgh, access_local_rank_slice(device_0_geo), celerity::write_only, celerity::no_init);
+			cgh.parallel_for(device_0_geo, [=](celerity::id<3>) { //
+				(void)rank_point_counts;
+			});
+		});
+
+		queue.submit([&](celerity::handler& cgh) {
+			// We abuse the fact that the geometry has a different device assigned for each chunk, even though that is ignored for host tasks
+			celerity::accessor device_point_counts(per_device_point_counts, cgh, access_device_slices(all_devices_geo), celerity::read_only_host_task);
+			celerity::accessor device_write_offsets(per_device_write_offsets, cgh, access_device_slices(all_devices_geo), celerity::read_only_host_task);
+			celerity::accessor rank_cumulative_counts(per_rank_cumulative_counts, cgh, access_local_rank_slice(all_devices_geo), celerity::read_only_host_task);
+			cgh.host_task(all_devices_geo, [=](celerity::partition<3>) {
+				(void)device_point_counts;
+				(void)device_write_offsets;
+				(void)rank_cumulative_counts;
+			});
+		});
+
+		queue.wait();
+		print_delta_time("Allocate buffers");
+	}
+
 	queue.wait(celerity::experimental::barrier);
 	const auto before_count_points = std::chrono::steady_clock::now();
 
@@ -525,7 +583,7 @@ int main(int argc, char* argv[]) {
 	//       after this, the remote node will think the data has changed elsewhere and will wait for it to be pushed. The "owning" node however
 	//       knows that it didn't really write the range, and so will not generate a push (in fact it will believe someone else to be the
 	//       owner). If we wanted to do this correctly, we'd have to pass the local grid size of each node.
-	celerity::expert_mapper write_device_count_access{box<3>::full_range(per_device_tile_point_counts.get_range()), access_device_slices(write_tiles_geometry)};
+	celerity::expert_mapper write_device_count_access{box<3>::full_range(per_device_point_counts.get_range()), access_device_slices(write_tiles_geometry)};
 	write_device_count_access.options.use_local_indexing = true;
 
 	// TODO: Where is handler::fill... Although it's unclear how that would work in SPMD context (each rank wants to fill its own slice)
@@ -538,7 +596,7 @@ int main(int argc, char* argv[]) {
 			geo.assigned_chunks.push_back({chnk_box, rank, i});
 		}
 		celerity::accessor write_device_counts(
-		    per_device_tile_point_counts, cgh, celerity::expert_mapper(access_device_slices(geo)), celerity::write_only, celerity::no_init);
+		    per_device_point_counts, cgh, celerity::expert_mapper(access_device_slices(geo)), celerity::write_only, celerity::no_init);
 		celerity::debug::set_task_name(cgh, "initialize per-device point to zero");
 		cgh.assert_no_data_movement();
 		cgh.parallel_for(geo, [=](celerity::id<3> id) { write_device_counts[id] = 0; });
@@ -546,7 +604,7 @@ int main(int argc, char* argv[]) {
 
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor read_points(points_input, cgh, celerity::access::one_to_one{}, celerity::read_only);
-		celerity::accessor write_counts(per_device_tile_point_counts, cgh, write_device_count_access, celerity::write_only, celerity::no_init);
+		celerity::accessor write_counts(per_device_point_counts, cgh, write_device_count_access, celerity::write_only, celerity::no_init);
 		celerity::debug::set_task_name(cgh, "count points (global)");
 
 		cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
@@ -583,12 +641,12 @@ int main(int argc, char* argv[]) {
 
 #if USE_NCCL
 		queue.submit([&](celerity::handler& cgh) {
-			celerity::expert_mapper read_device_counts{box<3>::full_range(per_device_tile_point_counts.get_range()), access_device_slices(sum_points_geo)};
+			celerity::expert_mapper read_device_counts{box<3>::full_range(per_device_point_counts.get_range()), access_device_slices(sum_points_geo)};
 			read_device_counts.options.allocate_exactly = true;
-			celerity::expert_mapper write_rank_counts{box<3>::full_range(per_rank_tile_point_counts.get_range()), write_rank_counts_accesses};
+			celerity::expert_mapper write_rank_counts{box<3>::full_range(per_rank_point_counts.get_range()), write_rank_counts_accesses};
 			write_rank_counts.options.allocate_exactly = true;
-			celerity::accessor device_counts(per_device_tile_point_counts, cgh, read_device_counts, celerity::read_only);
-			celerity::accessor rank_counts(per_rank_tile_point_counts, cgh, write_rank_counts, celerity::write_only, celerity::no_init);
+			celerity::accessor device_counts(per_device_point_counts, cgh, read_device_counts, celerity::read_only);
+			celerity::accessor rank_counts(per_rank_point_counts, cgh, write_rank_counts, celerity::write_only, celerity::no_init);
 
 			celerity::debug::set_task_name(cgh, "device count sum");
 			cgh.interop_task(sum_points_geo, [=](celerity::interop_handle& ih, celerity::partition<1> part) {
@@ -599,7 +657,7 @@ int main(int argc, char* argv[]) {
 				//     "Hello from interop task for device {}. Device counts: {}, rank counts: {}", device_idx, (void*)device_counts_ptr,
 				//     (void*)rank_counts_ptr);
 				auto stream = ih.get_native_queue<sycl::backend::cuda>();
-				static_assert(std::is_same_v<decltype(per_rank_tile_point_counts), celerity::buffer<uint32_t, 3>>); // Adjust NCCL type if this fails
+				static_assert(std::is_same_v<decltype(per_rank_point_counts), celerity::buffer<uint32_t, 3>>); // Adjust NCCL type if this fails
 				// TODO: Can / should we register buffer with NCCL first?
 				NCCL_CHECK(ncclReduce(device_counts_ptr, rank_counts_ptr, local_grid_size.size(), ncclUint32, ncclSum, 0, nccl_comms[device_idx], stream));
 			});
@@ -684,7 +742,7 @@ int main(int argc, char* argv[]) {
 		queue.submit([&](celerity::handler& cgh) {
 			celerity::custom_task_geometry<3> copy_local_counts_geo;
 			copy_local_counts_geo.assigned_chunks.push_back({rank_slice(rank), rank, 0});
-			celerity::accessor read_rank_counts(per_rank_tile_point_counts, cgh, celerity::access::one_to_one{}, celerity::read_only);
+			celerity::accessor read_rank_counts(per_rank_point_counts, cgh, celerity::access::one_to_one{}, celerity::read_only);
 			celerity::accessor write_global_counts(per_rank_global_counts, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init);
 			cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
 			celerity::debug::set_task_name(cgh, "copy local counts to global counts buffer");
@@ -696,8 +754,8 @@ int main(int argc, char* argv[]) {
 		// Compute the global counts within the local bounding box
 		// We currently do everything on device 0 for simplicity
 		queue.submit([&](celerity::handler& cgh) {
-			celerity::accessor read_rank_counts(per_rank_tile_point_counts, cgh,
-			    celerity::expert_mapper(box<3>::full_range(per_rank_tile_point_counts.get_range()), read_rank_counts_accesses), celerity::read_only);
+			celerity::accessor read_rank_counts(per_rank_point_counts, cgh,
+			    celerity::expert_mapper(box<3>::full_range(per_rank_point_counts.get_range()), read_rank_counts_accesses), celerity::read_only);
 			// TODO: This may lead to overlapping writes between chunks on the same device; need to tell Celerity somehow that its ok because we use atomics
 			// Since we write only parts of the local buffer, we cannot declare the whole buffer as being written and have to compute the actual union instead
 			celerity::accessor write_global_counts(
@@ -716,8 +774,8 @@ int main(int argc, char* argv[]) {
 		// TODO: Can we combine this with the previous task?
 		// TODO: For rank 0 we don't need to do this
 		queue.submit([&](celerity::handler& cgh) {
-			celerity::accessor read_rank_counts(per_rank_tile_point_counts, cgh,
-			    celerity::expert_mapper(box<3>::full_range(per_rank_tile_point_counts.get_range()), read_lower_rank_counts_accesses), celerity::read_only);
+			celerity::accessor read_rank_counts(per_rank_point_counts, cgh,
+			    celerity::expert_mapper(box<3>::full_range(per_rank_point_counts.get_range()), read_lower_rank_counts_accesses), celerity::read_only);
 			celerity::accessor write_lower_rank_sum(
 			    per_rank_lower_rank_counts, cgh, celerity::expert_mapper(write_lower_rank_sum_accesses), celerity::write_only, celerity::no_init);
 			celerity::debug::set_task_name(cgh, "sum lower rank counts");
@@ -858,7 +916,7 @@ int main(int argc, char* argv[]) {
 					read_lower_device_counts_accesses.push_back({chnk_box, device_slice(j)});
 				}
 				celerity::accessor read_lower_device_counts(
-				    per_device_tile_point_counts, cgh, celerity::expert_mapper(read_lower_device_counts_accesses), celerity::read_only);
+				    per_device_point_counts, cgh, celerity::expert_mapper(read_lower_device_counts_accesses), celerity::read_only);
 				celerity::accessor write_device_write_offsets(
 				    per_device_write_offsets, cgh, celerity::expert_mapper(access_device_slices(geo)), celerity::read_write);
 				celerity::debug::set_task_name(cgh, fmt::format("add device {} counts", j));
@@ -880,7 +938,7 @@ int main(int argc, char* argv[]) {
 				geo.assigned_chunks.push_back({box<3>::full_range(celerity::detail::ones), rank, 0}); // Doesn't matter
 				std::vector<std::pair<box<3>, region<3>>> read_device_slice;
 				read_device_slice.push_back({geo.assigned_chunks.back().box, device_slice(i)});
-				celerity::accessor device_counts(per_device_tile_point_counts, cgh, celerity::expert_mapper(read_device_slice), celerity::read_only_host_task);
+				celerity::accessor device_counts(per_device_point_counts, cgh, celerity::expert_mapper(read_device_slice), celerity::read_only_host_task);
 				celerity::accessor device_write_offsets(
 				    per_device_write_offsets, cgh, celerity::expert_mapper(read_device_slice), celerity::read_only_host_task);
 				celerity::debug::set_task_name(cgh, fmt::format("compute written subranges for device {}", i));
@@ -940,7 +998,7 @@ int main(int argc, char* argv[]) {
 				geo.assigned_chunks.push_back({chnk_box, rank, i});
 			}
 			celerity::accessor write_device_counts(
-			    per_device_tile_point_counts, cgh, celerity::expert_mapper(access_device_slices(geo)), celerity::write_only, celerity::no_init);
+			    per_device_point_counts, cgh, celerity::expert_mapper(access_device_slices(geo)), celerity::write_only, celerity::no_init);
 			celerity::debug::set_task_name(cgh, "reset per-device point counts");
 			cgh.assert_no_data_movement();
 			cgh.parallel_for(geo, [=](celerity::id<3> id) { write_device_counts[id] = 0; });
@@ -961,7 +1019,7 @@ int main(int argc, char* argv[]) {
 		queue.submit([&](celerity::handler& cgh) {
 			celerity::accessor read_points(points_input, cgh, celerity::access::one_to_one{}, celerity::read_only);
 			celerity::accessor read_write_offsets(per_device_write_offsets, cgh, read_write_offsets_reqs, celerity::read_only);
-			celerity::accessor write_counts(per_device_tile_point_counts, cgh, write_device_count_access, celerity::write_only, celerity::no_init);
+			celerity::accessor write_counts(per_device_point_counts, cgh, write_device_count_access, celerity::write_only, celerity::no_init);
 			celerity::accessor write_tiles(tiles_storage, cgh, tile_accesses, celerity::write_only, celerity::no_init);
 
 			celerity::debug::set_task_name(cgh, "write points");
