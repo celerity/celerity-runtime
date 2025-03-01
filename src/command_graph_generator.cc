@@ -573,7 +573,8 @@ void command_graph_generator::generate_local_execution_command(batch& current_ba
 		const bool is_reduction_initializer = std::any_of(tsk.get_reductions().begin(), tsk.get_reductions().end(),
 		    [&](const auto& reduction) { return m_local_nid == reduction_initializer_nid && reduction.init_from_buffer; });
 		execution_spec spec;
-		if(chunks_with_requirements.local_chunks.size() == 1) {
+		// If it's a single chunk that has NOT been assigned to a device, use simple execution spec (may be split further by IDAG)
+		if(chunks_with_requirements.local_chunks.size() == 1 && !chunks_with_requirements.local_chunks[0].first.target_device.has_value()) {
 			spec = chunks_with_requirements.local_chunks[0].first.chnk;
 		} else {
 			std::vector<device_execution_range> exec_ranges(chunks_with_requirements.local_chunks.size());
@@ -581,6 +582,7 @@ void command_graph_generator::generate_local_execution_command(batch& current_ba
 				const auto& [a_chunk, _] = chunks_with_requirements.local_chunks[i];
 				// NOCOMMIT HACK: We produce multiple chunks if m_test_chunk_multiplier > 1, but those don't have device id.
 				//                We should really just get rid of that multiplier, and change those tests to use custom task geometries.
+				// We should then probably throw here (or earlier even, maybe in handler?) if not all chunks are assigned to a device.
 				const auto did = a_chunk.target_device.value_or(-1);
 				exec_ranges[i] = {a_chunk.chnk, did};
 			}
