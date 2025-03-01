@@ -400,7 +400,7 @@ std::string print_instruction_graph(const instruction_recorder& irec, const comm
 			    }
 			    fmt::format_to(back, "<b>copy</b><br/>from {} {}<br/>to {} {}<br/>{} {} x{} bytes<br/>{} bytes total", cinstr.source_allocation_id,
 			        cinstr.source_layout, cinstr.dest_allocation_id, cinstr.dest_layout, print_buffer_label(cinstr.buffer_id, cinstr.buffer_name),
-			        cinstr.copy_region, cinstr.element_size, fmt::group_digits(cinstr.copy_region.get_area() * cinstr.element_size));
+			        format_region(cinstr.copy_region), cinstr.element_size, fmt::group_digits(cinstr.copy_region.get_area() * cinstr.element_size));
 			    end_node();
 		    },
 		    [&](const device_kernel_instruction_record& dkinstr) {
