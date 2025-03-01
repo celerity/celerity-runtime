@@ -1018,7 +1018,8 @@ staging_allocation& generator_impl::acquire_staging_allocation(
 	const auto alloc_instr = create<alloc_instruction>(current_batch, aid, size_bytes, align_bytes, //
 	    [&](const auto& record_debug_info) { record_debug_info(alloc_instruction_record::alloc_origin::staging, std::nullopt, std::nullopt); });
 	if(perf_assertions != nullptr && perf_assertions->assert_no_allocations) {
-		if((mid == host_memory_id && perf_assertions->assert_no_allocations_scope == allocation_scope::host)
+		if(perf_assertions->assert_no_allocations_scope == allocation_scope::any
+		    || (mid == host_memory_id && perf_assertions->assert_no_allocations_scope == allocation_scope::host)
 		    || (mid >= first_device_memory_id && perf_assertions->assert_no_allocations_scope == allocation_scope::device)) {
 			CELERITY_ERROR("Performance assertion at {}:{} failed: Task {} '{}' requires staging allocation of size {} in memory {}",
 			    perf_assertions->assert_no_allocations_source_loc.file_name(), perf_assertions->assert_no_allocations_source_loc.line(), perf_assertions->tid,
