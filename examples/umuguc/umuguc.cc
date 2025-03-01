@@ -1,3 +1,4 @@
+#include <numeric>
 #include <span>
 #include <vector>
 
@@ -113,6 +114,10 @@ using clk = std::chrono::steady_clock;
  * - [ ] Local indexing setting (requires exact allocation; needed for per-rank and per-device slices of 3D buffers)
  * - [ ] Initialize allocation setting (to avoid having to manually initialize per-rank and per-device slices)
  * - [ ] Data requirements (expert mapper) that receives 1D/2D boxes/regions would spare us a lot of casts
+ *
+ *
+ * OTHER TODOS:
+ * - [ ] Come up with a more consistent naming scheme for the expert mapper input vector, the expert mapper and the accessor. It's a mess currently.
  */
 
 #define NCCL_CHECK(cmd)                                                                                                                                        \
@@ -174,6 +179,7 @@ int main(int argc, char* argv[]) {
 	const auto filename = argv[1];
 	consume_args(1, 1, &argc, &argv);
 	const bool write_output = get_flag("--write-output", &argc, &argv);
+	const bool write_new_results = get_flag("--write-new", &argc, &argv); // TODO: Only for comparison during transition phase. Remove again
 	const double tile_size = get_arg<double>("--tile-size", &argc, &argv).value_or(1.0);
 	// TODO: Consider adding an offset parameter that controls by how many bounding boxes duplicated inputs are offset (default 1)
 	//       This way we could test different levels of overlap between nodes
@@ -455,6 +461,7 @@ int main(int argc, char* argv[]) {
 	// celerity::buffer<uint32_t, 2> global_cumulative_counts({global_grid_size[0], global_grid_size[1]});
 
 	celerity::buffer<umuguc_point3d, 1> tiles_storage_new(global_num_points);
+	celerity::buffer<sycl::double3, 1> shape_factors_new(global_num_points);
 
 	celerity::debug::set_buffer_name(per_device_tile_point_counts, "per device tile point counts");
 	celerity::debug::set_buffer_name(per_rank_tile_point_counts, "per rank tile point counts");
@@ -466,6 +473,7 @@ int main(int argc, char* argv[]) {
 	celerity::debug::set_buffer_name(per_device_write_offsets_buffer, "per device write offsets");
 	// celerity::debug::set_buffer_name(global_cumulative_counts, "global cumulative counts");
 	celerity::debug::set_buffer_name(tiles_storage, "tiles storage (new)");
+	celerity::debug::set_buffer_name(shape_factors_new, "shape factors (new)");
 
 	queue.wait(celerity::experimental::barrier);
 	const auto before_count_points = std::chrono::steady_clock::now();
@@ -1020,7 +1028,8 @@ int main(int argc, char* argv[]) {
 						throw std::runtime_error("Could not find end of per-device tile range within local bounding box - this is bad");
 					}
 					const auto start_offset = *start_it;
-					const auto end_offset = end_it != counts_linear.end() ? *end_it : global_num_points;
+					const bool is_last_device = device_gid == num_ranks * num_devices - 1;
+					const auto end_offset = (end_it != counts_linear.end() && !is_last_device) ? *end_it : global_num_points;
 
 					// CELERITY_INFO("Device {} (global {}) on rank {} should process points {} to {}", i, device_gid, rank, start_offset, end_offset);
 					shape_factor_geometry_new.assigned_chunks[i] = {box_cast<3>(box<1>{start_offset, end_offset}), rank, i};
@@ -1045,6 +1054,13 @@ int main(int argc, char* argv[]) {
 
 		std::vector<box<1>> execution_range_by_rank(num_ranks);
 		MPI_Allgather(&my_execution_range, sizeof(box<1>), MPI_BYTE, execution_range_by_rank.data(), sizeof(box<1>), MPI_BYTE, MPI_COMM_WORLD);
+
+		if(std::accumulate(std::next(execution_range_by_rank.begin()), execution_range_by_rank.end(), region<1>(execution_range_by_rank[0]),
+		       [](const region<1>& a, const region<1>& b) { return region_union(a, b); })
+		    != box<1>::full_range(global_num_points)) {
+			throw std::runtime_error(fmt::format("Per-rank ranges do not cover the full global range {}. All ranges: {}", box<1>::full_range(global_num_points),
+			    fmt::join(execution_range_by_rank, ", ")));
+		}
 
 		for(size_t i = 0; i < num_ranks; ++i) {
 			if(i > 0 && execution_range_by_rank[i].get_min() != execution_range_by_rank[i - 1].get_max()) {
@@ -1166,6 +1182,7 @@ int main(int argc, char* argv[]) {
 
 		const auto neighborhood_reads_by_rank = allgather_regions(local_neighborhood, num_ranks, rank);
 		for(size_t i = 0; i < num_ranks; ++i) {
+			if(i == rank) continue;
 			if(!box_intersection(bounding_box_by_rank[i], bounding_box_by_rank[rank]).empty()) {
 				// This rank may need data from us (let Celerity figure it out)
 				shape_factor_geometry_new.assigned_chunks.push_back({box_cast<3>(execution_range_by_rank[i]), i, 0});
@@ -1178,6 +1195,137 @@ int main(int argc, char* argv[]) {
 			shape_factor_neighborhood_accesses.push_back(
 			    {box_cast<3>(shape_factor_geometry_new.assigned_chunks[i].box), region_cast<3>(neighborhood_reads_per_device[i])});
 		}
+	}
+
+	// TODO: Move up, we could use this all over the place
+	const auto rank_slice = box<3>(subrange<3>{{rank, local_grid_offset[0], local_grid_offset[1]}, {1, local_grid_size[0], local_grid_size[1]}});
+
+	// Run shape factor calculation
+	{
+		// TODO: There may be cases where we'd want to split chunks that wrap around into a new row into two separate chunks, one per row.
+		// This is because if the second chunk doesn't go all the way to where the previous row starts, we may end up over-allocating by a large
+		// amount due to the neighborhood access. Having multiple chunks would allow for these allocations to be made separately.
+
+		queue.submit([&](celerity::handler& cgh) {
+			celerity::expert_mapper read_tile_neighborhood(shape_factor_neighborhood_accesses);
+			celerity::expert_mapper write_shape_factors_reqs(range_cast<3>(shape_factors_new.get_range()),
+			    celerity::from_range_mapper(shape_factor_geometry_new, shape_factors_new.get_range(), celerity::access::one_to_one{}));
+
+			// TODO API: We need a shortcut for this pattern, its really common
+			std::vector<std::pair<box<3>, region<3>>> rank_slice_accesses;
+			for(const auto& chnk : shape_factor_geometry_new.assigned_chunks) {
+				if(chnk.nid == rank) {
+					rank_slice_accesses.push_back({chnk.box, rank_slice});
+				} else {
+					rank_slice_accesses.push_back({chnk.box, {}});
+				}
+			}
+
+			celerity::accessor read_tiles(tiles_storage_new, cgh, read_tile_neighborhood, celerity::read_only);
+			celerity::accessor write_shape_factors(shape_factors_new, cgh, write_shape_factors_reqs, celerity::write_only, celerity::no_init);
+			celerity::accessor read_global_counts(per_rank_global_counts, cgh, celerity::expert_mapper(rank_slice_accesses), celerity::read_only);
+			celerity::accessor read_cumulative_counts(per_rank_cumulative_counts, cgh, celerity::expert_mapper(rank_slice_accesses), celerity::read_only);
+			celerity::debug::set_task_name(cgh, "compute shape factors (new)");
+
+			cgh.parallel_for(shape_factor_geometry_new, [=](celerity::id<1> id) {
+				const auto outer_product = [](const umuguc_point3d& p) {
+					// create the matrix by calculating p * p^T
+					std::array<std::array<double, 3>, 3> matrix;
+					matrix[0][0] = p.x * p.x;
+					matrix[0][1] = p.x * p.y;
+					matrix[0][2] = p.x * p.z;
+					matrix[1][0] = p.y * p.x;
+					matrix[1][1] = p.y * p.y;
+					matrix[1][2] = p.y * p.z;
+					matrix[2][0] = p.z * p.x;
+					matrix[2][1] = p.z * p.y;
+					matrix[2][2] = p.z * p.z;
+					return matrix;
+				};
+
+				const auto& get_point = [=](const tilebuffer_item& itm) {
+					// TODO: Wait, isn't that just the kernel's thread id?
+					return read_tiles[read_cumulative_counts[rank][itm.slot[0]][itm.slot[1]] + itm.index];
+				};
+
+				const auto get_slot = [=](const celerity::id<2>& slot) {
+					// Roll own span until we can compile with C++20 (Clang 14 crashes if I try)
+					struct bootleg_span {
+						const umuguc_point3d* data;
+						size_t count;
+						const umuguc_point3d* begin() const { return data; }
+						const umuguc_point3d* end() const { return data + count; }
+					};
+
+					const auto slot_size = read_global_counts[rank][slot[0]][slot[1]];
+					if(slot_size == 0) {
+						// Empty tile
+						return bootleg_span{nullptr, 0};
+					}
+					const auto start = read_cumulative_counts[rank][slot[0]][slot[1]];
+					return bootleg_span{&read_tiles[start], slot_size};
+				};
+
+				const auto item =
+				    get_current_item(id, local_grid_size, local_grid_offset, &read_cumulative_counts[rank][local_grid_offset[0]][local_grid_offset[1]]);
+				const auto p = get_point(item);
+
+				std::array<std::array<double, 3>, 3> matrix{{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}}};
+
+				const int local_search_radius = 1; // NOTE: This CANNOT simply be changed. Requires adjustment to neighborhood access calculation.
+				const double radius = tile_size;   // TODO: Decouple these two parameters
+				double sum_fermi = 0.0;
+				for(int j = -local_search_radius; j <= local_search_radius; ++j) {
+					for(int k = -local_search_radius; k <= local_search_radius; ++k) {
+						const int32_t x = item.slot[1] + k;
+						const int32_t y = item.slot[0] + j;
+						if(x < 0 || y < 0 || uint32_t(x) >= global_grid_size[1] || uint32_t(y) >= global_grid_size[0]) continue;
+
+						for(auto& p2 : get_slot(celerity::id<2>(y, x))) {
+							const umuguc_point3d p3 = {p.x - p2.x, p.y - p2.y, p.z - p2.z};
+							const auto distance_p_p2 = sqrt(p3.x * p3.x + p3.y * p3.y + p3.z * p3.z);
+
+							if(p != p2 && distance_p_p2 <= radius + 0.01) {
+								const double fermi = 1 / (std::exp((distance_p_p2 / radius) - 0.6) / 0.1 + 1);
+								sum_fermi += fermi;
+								const std::array<std::array<double, 3>, 3> matrix2 = outer_product(p3);
+
+								for(int m = 0; m < 3; m++) {
+									for(int n = 0; n < 3; n++) {
+										matrix[m][n] += fermi * matrix2[m][n];
+									}
+								}
+							}
+						}
+					}
+				}
+
+				sycl::double3 sf = {};
+				const size_t write_offset = read_cumulative_counts[rank][item.slot[0]][item.slot[1]] + item.index;
+				if(sum_fermi == 0.0) {
+					// Early exit if there are no neighbors
+					write_shape_factors[write_offset] = sf;
+					return;
+				}
+
+				for(int j = 0; j < 3; j++) {
+					for(int k = 0; k < 3; k++) {
+						matrix[j][k] = (1 / sum_fermi) * matrix[j][k];
+					}
+				}
+
+				std::array<std::array<double, 3>, 3> V;
+				std::array<double, 3> d{0, 0, 0};
+				eigen_decomposition<3>(matrix, V, d);
+
+				const auto sum = d[0] + d[1] + d[2];
+				sf.z() = (3 * d[0]) / sum;
+				sf.y() = (2 * (d[1] - d[0])) / sum;
+				sf.x() = (d[2] - d[1]) / sum;
+
+				write_shape_factors[write_offset] = sf;
+			});
+		});
 	}
 
 	queue.wait();
@@ -1714,7 +1862,7 @@ int main(int argc, char* argv[]) {
 		celerity::scratch_accessor read_num_entries_cumulative_scratch(num_entries_cumulative_scratch_2);
 		celerity::debug::set_task_name(cgh, "compute shape factors");
 
-		cgh.parallel_for(shape_factor_geometry, [=, total_size = points_input.get_range().size()](celerity::id<1> id) {
+		cgh.parallel_for(shape_factor_geometry, [=](celerity::id<1> id) {
 			const auto outer_product = [](const umuguc_point3d& p) {
 				// create the matrix by calculating p * p^T
 				std::array<std::array<double, 3>, 3> matrix;
@@ -1753,9 +1901,7 @@ int main(int argc, char* argv[]) {
 				return bootleg_span{&read_tiles[start], read_num_entries_scratch[slot]};
 			};
 
-			const auto item = get_current_item(id, total_size, global_grid_size, &read_num_entries_cumulative_scratch[celerity::id<2>{0, 0}]);
-			if(!item.within_bounds) { return; }
-
+			const auto item = get_current_item(id, global_grid_size, {}, &read_num_entries_cumulative_scratch[celerity::id<2>{0, 0}]);
 			const auto p = access_point(item);
 
 			std::array<std::array<double, 3>, 3> matrix{{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}}};
@@ -1819,8 +1965,9 @@ int main(int argc, char* argv[]) {
 
 	if(write_output) {
 		queue.submit([&](celerity::handler& cgh) {
-			celerity::accessor read_points(tiles_storage, cgh, celerity::access::all{}, celerity::read_only_host_task);
-			celerity::accessor read_shape_factors(shape_factors, cgh, celerity::access::all{}, celerity::read_only_host_task);
+			celerity::accessor read_points(write_new_results ? tiles_storage_new : tiles_storage, cgh, celerity::access::all{}, celerity::read_only_host_task);
+			celerity::accessor read_shape_factors(
+			    write_new_results ? shape_factors_new : shape_factors, cgh, celerity::access::all{}, celerity::read_only_host_task);
 
 			const size_t total_point_count = points_input.get_range().size();
 			cgh.host_task(celerity::on_master_node, [=]() {

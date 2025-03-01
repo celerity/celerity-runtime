@@ -403,16 +403,13 @@ std::vector<celerity::detail::region<Dims>> allgather_regions(celerity::detail::
 struct tilebuffer_item {
 	celerity::id<2> slot;
 	uint32_t index = 0;
-	bool within_bounds = false;
 };
 
 /// Returns the index of the current "item" (point in a tile) being processed by the given thread
 /// TODO: Only works for 2D buffers
-inline tilebuffer_item get_current_item(
-    const celerity::id<1>& thread_idx, const uint32_t total_count, const celerity::range<2>& buffer_extent, const uint32_t* num_entries_cumulative) {
-	if(thread_idx[0] >= total_count) { return {{}, 0, false}; }
-
-	const auto buffer_size = buffer_extent.size();
+inline tilebuffer_item get_current_item(const celerity::id<1>& thread_idx, const celerity::range<2>& local_grid_size, const celerity::id<2>& local_grid_offset,
+    const uint32_t* num_entries_cumulative) {
+	const auto buffer_size = local_grid_size.size();
 	uint32_t min = 0;
 	uint32_t max = buffer_size;
 	auto midpoint = (min + max) / 2;
@@ -432,7 +429,7 @@ inline tilebuffer_item get_current_item(
 	// Now compute actual index
 	const uint32_t index = thread_idx[0] - num_entries_cumulative[midpoint];
 	celerity::id<2> slot;
-	slot[0] = midpoint / buffer_extent[1];
-	slot[1] = midpoint % buffer_extent[1];
-	return {slot, index, true};
+	slot[0] = local_grid_offset[0] + midpoint / local_grid_size[1];
+	slot[1] = local_grid_offset[1] + midpoint % local_grid_size[1];
+	return {slot, index};
 }
