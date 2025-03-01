@@ -490,25 +490,42 @@ int main(int argc, char* argv[]) {
 		return box<3>(subrange<3>{{rank * num_devices + device, local_grid_offset[0], local_grid_offset[1]}, {1, local_grid_size[0], local_grid_size[1]}});
 	};
 
+	// Generate an access to a slice of a per-rank buffer for all chunks that are assigned to this rank
+	const auto access_local_rank_slice = [rank_slice, rank]<int Dims>(const celerity::custom_task_geometry<Dims>& geo) {
+		std::vector<std::pair<box<3>, region<3>>> accesses;
+		for(const auto& chnk : geo.assigned_chunks) {
+			if(chnk.nid == rank) {
+				accesses.push_back({chnk.box, rank_slice(rank)});
+			} else {
+				accesses.push_back({chnk.box, {}});
+			}
+		}
+		return accesses;
+	};
+
+	// Like access_local_rank_slice, but accesses the per-device slice
+	const auto access_device_slices = [device_slice, rank]<int Dims>(const celerity::custom_task_geometry<Dims>& geo) {
+		std::vector<std::pair<box<3>, region<3>>> accesses;
+		for(const auto& chnk : geo.assigned_chunks) {
+			if(chnk.nid == rank) {
+				accesses.push_back({chnk.box, device_slice(chnk.did.value())});
+			} else {
+				accesses.push_back({chnk.box, {}});
+			}
+		}
+		return accesses;
+	};
+
 	queue.wait(celerity::experimental::barrier);
 	const auto before_count_points = std::chrono::steady_clock::now();
 
-	// TODO: If this becomes a pattern, build a utility around it
-	std::vector<std::pair<box<3>, region<3>>> local_device_accesses;
-	for(auto& chnk : write_tiles_geometry.assigned_chunks) {
-		if(chnk.nid == rank) {
-			local_device_accesses.push_back({chnk.box, device_slice(chnk.did.value())});
-		} else {
-			local_device_accesses.push_back({chnk.box, {}});
-		}
-	}
 	// TODO: This is a *bit* flaky: We are saying that the full range is being written across all nodes. This is not true however, because we only
 	//       write the local grid size on each node. This is not a problem in practice, but it does create a desync between what nodes think the
 	//       state of the buffer is. In a hypothetical scenario where we access part of the buffer outside the local grid on a remote node
 	//       after this, the remote node will think the data has changed elsewhere and will wait for it to be pushed. The "owning" node however
 	//       knows that it didn't really write the range, and so will not generate a push (in fact it will believe someone else to be the
 	//       owner). If we wanted to do this correctly, we'd have to pass the local grid size of each node.
-	celerity::expert_mapper write_device_count_access{box<3>::full_range(per_device_tile_point_counts.get_range()), local_device_accesses};
+	celerity::expert_mapper write_device_count_access{box<3>::full_range(per_device_tile_point_counts.get_range()), access_device_slices(write_tiles_geometry)};
 	write_device_count_access.options.use_local_indexing = true;
 
 	// TODO: Where is handler::fill... Although it's unclear how that would work in SPMD context (each rank wants to fill its own slice)
@@ -516,14 +533,12 @@ int main(int argc, char* argv[]) {
 	// TODO: Same as below for resetting before writing points. Refactor out.
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::custom_task_geometry<3> geo;
-		std::vector<std::pair<box<3>, region<3>>> write_device_slice;
 		for(size_t i = 0; i < num_devices; ++i) {
 			const auto chnk_box = device_slice(i);
 			geo.assigned_chunks.push_back({chnk_box, rank, i});
-			write_device_slice.push_back({chnk_box, chnk_box});
 		}
 		celerity::accessor write_device_counts(
-		    per_device_tile_point_counts, cgh, celerity::expert_mapper(write_device_slice), celerity::write_only, celerity::no_init);
+		    per_device_tile_point_counts, cgh, celerity::expert_mapper(access_device_slices(geo)), celerity::write_only, celerity::no_init);
 		celerity::debug::set_task_name(cgh, "initialize per-device point to zero");
 		cgh.assert_no_data_movement();
 		cgh.parallel_for(geo, [=](celerity::id<3> id) { write_device_counts[id] = 0; });
@@ -555,12 +570,10 @@ int main(int argc, char* argv[]) {
 	{
 		celerity::custom_task_geometry sum_points_geo;
 		sum_points_geo.global_size = range_cast<3>(celerity::range<1>{num_devices});
-		std::vector<std::pair<box<3>, region<3>>> read_device_counts_accesses;
 		std::vector<std::pair<box<3>, region<3>>> write_rank_counts_accesses;
 		for(size_t i = 0; i < num_devices; ++i) {
 			const auto chnk_box = box_cast<3>(box<1>(subrange<1>{i, 1}));
 			sum_points_geo.assigned_chunks.push_back({chnk_box, rank, i});
-			read_device_counts_accesses.push_back({chnk_box, device_slice(i)});
 			if(i == 0) {
 				write_rank_counts_accesses.push_back({chnk_box, rank_slice(rank)});
 			} else {
@@ -570,7 +583,7 @@ int main(int argc, char* argv[]) {
 
 #if USE_NCCL
 		queue.submit([&](celerity::handler& cgh) {
-			celerity::expert_mapper read_device_counts{box<3>::full_range(per_device_tile_point_counts.get_range()), read_device_counts_accesses};
+			celerity::expert_mapper read_device_counts{box<3>::full_range(per_device_tile_point_counts.get_range()), access_device_slices(sum_points_geo)};
 			read_device_counts.options.allocate_exactly = true;
 			celerity::expert_mapper write_rank_counts{box<3>::full_range(per_rank_tile_point_counts.get_range()), write_rank_counts_accesses};
 			write_rank_counts.options.allocate_exactly = true;
@@ -744,22 +757,18 @@ int main(int argc, char* argv[]) {
 		// Next, we compute the per-row sum of the cumulative counts for the GLOBAL bounding box
 		queue.submit([&](celerity::handler& cgh) {
 			celerity::custom_task_geometry<1> geo;
-			std::vector<std::pair<box<3>, region<3>>> read_cumulative_counts_accesses;
-			std::vector<std::pair<box<3>, region<3>>> read_global_counts_accesses;
 			std::vector<std::pair<box<3>, region<3>>> write_row_sums_accesses;
 			if(!authoritative_box.empty()) {
 				const auto chnk_box = box_cast<3>(authoritative_box);
 				geo.assigned_chunks.push_back({chnk_box, rank, 0});
-				// We only need to read from the rows intersecting with the authoritative region, but it doesn't matter if we declare more
-				read_cumulative_counts_accesses.push_back({chnk_box, rank_slice(rank)});
-				read_global_counts_accesses.push_back({chnk_box, rank_slice(rank)});
 				// We manually declare the access instead of using a one-to-one range mapper so we can declare the full write region without
 				// having to also specify all remote chunks
 				write_row_sums_accesses.push_back({chnk_box, chnk_box});
 			}
+			// We only need to read from the rows intersecting with the authoritative region, but it doesn't matter if we declare more
 			celerity::accessor read_cumulative_counts(
-			    per_rank_cumulative_counts, cgh, celerity::expert_mapper(read_cumulative_counts_accesses), celerity::read_only);
-			celerity::accessor read_global_counts(per_rank_global_counts, cgh, celerity::expert_mapper(read_global_counts_accesses), celerity::read_only);
+			    per_rank_cumulative_counts, cgh, celerity::expert_mapper(access_local_rank_slice(geo)), celerity::read_only);
+			celerity::accessor read_global_counts(per_rank_global_counts, cgh, celerity::expert_mapper(access_local_rank_slice(geo)), celerity::read_only);
 			celerity::accessor write_row_sums(global_row_sums, cgh,
 			    celerity::expert_mapper(range_cast<3>(global_row_sums.get_range()), write_row_sums_accesses), celerity::write_only, celerity::no_init);
 			celerity::debug::set_task_name(cgh, "write row sums");
@@ -799,14 +808,12 @@ int main(int argc, char* argv[]) {
 			celerity::custom_task_geometry<3> geo;
 			const auto chnk_box = rank_slice(rank);
 			geo.assigned_chunks.push_back({chnk_box, rank, 0});
-			std::vector<std::pair<box<3>, region<3>>> write_cumulative_counts_accesses;
-			write_cumulative_counts_accesses.push_back({chnk_box, chnk_box});
 			std::vector<std::pair<box<3>, region<3>>> read_add_to_prefix_sum_accesses;
 			read_add_to_prefix_sum_accesses.push_back({chnk_box, box<3>({rank, 0, 0}, {rank + 1, 1, 1})});
 			celerity::accessor read_add_to_prefix_sum(
 			    per_rank_add_to_prefix_sum, cgh, celerity::expert_mapper(read_add_to_prefix_sum_accesses), celerity::read_only);
 			celerity::accessor write_cumulative_counts(
-			    per_rank_cumulative_counts, cgh, celerity::expert_mapper(write_cumulative_counts_accesses), celerity::read_write);
+			    per_rank_cumulative_counts, cgh, celerity::expert_mapper(access_local_rank_slice(geo)), celerity::read_write);
 			celerity::debug::set_task_name(cgh, "add to prefix sum");
 			cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
 			cgh.parallel_for(geo, [=](celerity::id<3> id) { write_cumulative_counts[id] += read_add_to_prefix_sum[rank]; });
@@ -820,21 +827,17 @@ int main(int argc, char* argv[]) {
 		// We begin by adding up the global prefix sum and lower rank sum on each device
 		queue.submit([&](celerity::handler& cgh) {
 			celerity::custom_task_geometry<3> geo;
-			// We use the same list of accesses for reading lower rank sums and cumulative counts
-			std::vector<std::pair<box<3>, region<3>>> read_local_bounding_box;
-			std::vector<std::pair<box<3>, region<3>>> write_device_write_offsets_accesses;
 			for(size_t i = 0; i < num_devices; ++i) {
 				const auto chnk_box = device_slice(i);
 				geo.assigned_chunks.push_back({chnk_box, rank, i});
-				read_local_bounding_box.push_back({chnk_box, rank_slice(rank)});
-				write_device_write_offsets_accesses.push_back({chnk_box, chnk_box});
 			}
 			// FIXME: We are currently getting a legitimate uninitialized read warning here, because we only write the overlapping parts of the buffer
 			//        => Either initialize to zero explicitly, or implement initialization-upon-allocation option
-			celerity::accessor read_lower_rank_sum(per_rank_lower_rank_counts, cgh, celerity::expert_mapper(read_local_bounding_box), celerity::read_only);
-			celerity::accessor read_cumulative_counts(per_rank_cumulative_counts, cgh, celerity::expert_mapper(read_local_bounding_box), celerity::read_only);
+			celerity::accessor read_lower_rank_sum(per_rank_lower_rank_counts, cgh, celerity::expert_mapper(access_local_rank_slice(geo)), celerity::read_only);
+			celerity::accessor read_cumulative_counts(
+			    per_rank_cumulative_counts, cgh, celerity::expert_mapper(access_local_rank_slice(geo)), celerity::read_only);
 			celerity::accessor write_device_write_offsets(
-			    per_device_write_offsets, cgh, celerity::expert_mapper(write_device_write_offsets_accesses), celerity::write_only, celerity::no_init);
+			    per_device_write_offsets, cgh, celerity::expert_mapper(access_device_slices(geo)), celerity::write_only, celerity::no_init);
 			celerity::debug::set_task_name(cgh, "copy lower rank sum to device write offsets");
 			cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
 			cgh.parallel_for(geo, [=](celerity::id<3> id) {
@@ -849,17 +852,15 @@ int main(int argc, char* argv[]) {
 			queue.submit([&](celerity::handler& cgh) {
 				celerity::custom_task_geometry<3> geo;
 				std::vector<std::pair<box<3>, region<3>>> read_lower_device_counts_accesses;
-				std::vector<std::pair<box<3>, region<3>>> write_device_write_offsets_accesses;
 				for(size_t i = j + 1; i < num_devices; ++i) {
 					const auto chnk_box = device_slice(i);
 					geo.assigned_chunks.push_back({chnk_box, rank, i});
 					read_lower_device_counts_accesses.push_back({chnk_box, device_slice(j)});
-					write_device_write_offsets_accesses.push_back({chnk_box, chnk_box});
 				}
 				celerity::accessor read_lower_device_counts(
 				    per_device_tile_point_counts, cgh, celerity::expert_mapper(read_lower_device_counts_accesses), celerity::read_only);
 				celerity::accessor write_device_write_offsets(
-				    per_device_write_offsets, cgh, celerity::expert_mapper(write_device_write_offsets_accesses), celerity::read_write);
+				    per_device_write_offsets, cgh, celerity::expert_mapper(access_device_slices(geo)), celerity::read_write);
 				celerity::debug::set_task_name(cgh, fmt::format("add device {} counts", j));
 				cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
 				cgh.parallel_for(
@@ -934,32 +935,27 @@ int main(int argc, char* argv[]) {
 		// TODO: We're currently really inconsistent with whether the device loop is outside or inside the queue.submit() - what is better?
 		queue.submit([&](celerity::handler& cgh) {
 			celerity::custom_task_geometry<3> geo;
-			std::vector<std::pair<box<3>, region<3>>> write_device_slice;
 			for(size_t i = 0; i < num_devices; ++i) {
 				const auto chnk_box = device_slice(i);
 				geo.assigned_chunks.push_back({chnk_box, rank, i});
-				write_device_slice.push_back({chnk_box, chnk_box});
 			}
 			celerity::accessor write_device_counts(
-			    per_device_tile_point_counts, cgh, celerity::expert_mapper(write_device_slice), celerity::write_only, celerity::no_init);
+			    per_device_tile_point_counts, cgh, celerity::expert_mapper(access_device_slices(geo)), celerity::write_only, celerity::no_init);
 			celerity::debug::set_task_name(cgh, "reset per-device point counts");
 			cgh.assert_no_data_movement();
 			cgh.parallel_for(geo, [=](celerity::id<3> id) { write_device_counts[id] = 0; });
 		});
 
 		std::vector<std::pair<box<3>, region<3>>> per_chunk_accesses;
-		std::vector<std::pair<box<3>, region<3>>> device_slice_accesses;
 		for(auto& chnk : write_tiles_geometry.assigned_chunks) {
 			if(chnk.nid == rank) {
 				per_chunk_accesses.push_back({chnk.box, region_cast<3>(written_region_per_device[chnk.did.value()])});
-				device_slice_accesses.push_back({chnk.box, device_slice(chnk.did.value())});
 			} else {
 				per_chunk_accesses.push_back({chnk.box, {}});
-				device_slice_accesses.push_back({chnk.box, {}});
 			}
 		}
 		celerity::expert_mapper tile_accesses{range_cast<3>(tiles_storage.get_range()), per_chunk_accesses};
-		celerity::expert_mapper read_write_offsets_reqs{device_slice_accesses};
+		celerity::expert_mapper read_write_offsets_reqs{access_device_slices(write_tiles_geometry)};
 		read_write_offsets_reqs.options.use_local_indexing = true;
 
 		queue.submit([&](celerity::handler& cgh) {
@@ -995,10 +991,7 @@ int main(int argc, char* argv[]) {
 			queue.submit([&](celerity::handler& cgh) {
 				celerity::custom_task_geometry geo;
 				geo.assigned_chunks.push_back({box<3>::full_range(celerity::detail::ones), rank, 0}); // Doesn't matter
-				// TODO: We really need a helper function to generate these, it's the same pattern over and over
-				std::vector<std::pair<box<3>, region<3>>> read_rank_slice;
-				read_rank_slice.push_back({geo.assigned_chunks.back().box, rank_slice(rank)});
-				celerity::expert_mapper read_cumulative_counts(read_rank_slice);
+				celerity::expert_mapper read_cumulative_counts(access_local_rank_slice(geo));
 				read_cumulative_counts.options.allocate_exactly = true;
 				celerity::accessor cumulative_counts(per_rank_cumulative_counts, cgh, read_cumulative_counts, celerity::read_only_host_task);
 				celerity::debug::set_task_name(cgh, fmt::format("compute shape factor geometry for device {}", i));
@@ -1088,10 +1081,7 @@ int main(int argc, char* argv[]) {
 			queue.submit([&](celerity::handler& cgh) {
 				celerity::custom_task_geometry geo;
 				geo.assigned_chunks.push_back({box<3>::full_range(celerity::detail::ones), rank, 0}); // Doesn't matter
-				// TODO: We really need a helper function to generate these, it's the same pattern over and over
-				std::vector<std::pair<box<3>, region<3>>> read_rank_slice;
-				read_rank_slice.push_back({geo.assigned_chunks.back().box, rank_slice(rank)});
-				celerity::expert_mapper read_cumulative_counts(read_rank_slice);
+				celerity::expert_mapper read_cumulative_counts(access_local_rank_slice(geo));
 				read_cumulative_counts.options.allocate_exactly = true;
 				celerity::accessor cumulative_counts(per_rank_cumulative_counts, cgh, read_cumulative_counts, celerity::read_only_host_task);
 				celerity::debug::set_task_name(cgh, fmt::format("compute neighborhood reads for device {}", i));
@@ -1204,21 +1194,12 @@ int main(int argc, char* argv[]) {
 			celerity::expert_mapper write_shape_factors_reqs(range_cast<3>(shape_factors.get_range()),
 			    celerity::from_range_mapper(shape_factor_geometry, shape_factors.get_range(), celerity::access::one_to_one{}));
 
-			// TODO API: We need a shortcut for this pattern, its really common
-			std::vector<std::pair<box<3>, region<3>>> rank_slice_accesses;
-			for(const auto& chnk : shape_factor_geometry.assigned_chunks) {
-				if(chnk.nid == rank) {
-					CELERITY_INFO("Device {} on rank {} has shape factor range {}", chnk.did.value(), rank, chnk.box);
-					rank_slice_accesses.push_back({chnk.box, rank_slice(rank)});
-				} else {
-					rank_slice_accesses.push_back({chnk.box, {}});
-				}
-			}
-
 			celerity::accessor read_tiles(tiles_storage, cgh, read_tile_neighborhood, celerity::read_only);
 			celerity::accessor write_shape_factors(shape_factors, cgh, write_shape_factors_reqs, celerity::write_only, celerity::no_init);
-			celerity::accessor read_global_counts(per_rank_global_counts, cgh, celerity::expert_mapper(rank_slice_accesses), celerity::read_only);
-			celerity::accessor read_cumulative_counts(per_rank_cumulative_counts, cgh, celerity::expert_mapper(rank_slice_accesses), celerity::read_only);
+			celerity::accessor read_global_counts(
+			    per_rank_global_counts, cgh, celerity::expert_mapper(access_local_rank_slice(shape_factor_geometry)), celerity::read_only);
+			celerity::accessor read_cumulative_counts(
+			    per_rank_cumulative_counts, cgh, celerity::expert_mapper(access_local_rank_slice(shape_factor_geometry)), celerity::read_only);
 			celerity::debug::set_task_name(cgh, "compute shape factors");
 
 			cgh.parallel_for(shape_factor_geometry, [=](celerity::id<1> id) {
@@ -1333,17 +1314,15 @@ int main(int argc, char* argv[]) {
 		// Copy authoritative rows into global buffer
 		queue.submit([&](celerity::handler& cgh) {
 			celerity::custom_task_geometry<2> geo;
-			std::vector<std::pair<box<3>, region<3>>> read_rank_slice_accesses;
 			if(!authoritative_box.empty()) {
 				const auto asr = authoritative_box.get_subrange();
 				const auto full_width_box = box<3>(subrange<3>{{asr.offset[0], local_grid_offset[1], 0}, {asr.range[0], local_grid_size[1], 1}});
 				geo.assigned_chunks.push_back({full_width_box, rank, 0});
-				// We only need to read from the rows intersecting with the authoritative region, but it doesn't matter if we declare more
-				read_rank_slice_accesses.push_back({full_width_box, rank_slice(rank)});
 			}
-			celerity::accessor read_rank_global_counts(per_rank_global_counts, cgh, celerity::expert_mapper(read_rank_slice_accesses), celerity::read_only);
+			// We only need to read from the rows intersecting with the authoritative region, but it doesn't matter if we declare more
+			celerity::accessor read_rank_global_counts(per_rank_global_counts, cgh, celerity::expert_mapper(access_local_rank_slice(geo)), celerity::read_only);
 			celerity::accessor read_rank_cumulative_counts(
-			    per_rank_cumulative_counts, cgh, celerity::expert_mapper(read_rank_slice_accesses), celerity::read_only);
+			    per_rank_cumulative_counts, cgh, celerity::expert_mapper(access_local_rank_slice(geo)), celerity::read_only);
 			celerity::accessor write_global_counts(global_total_counts, cgh,
 			    celerity::expert_mapper(range_cast<3>(global_total_counts.get_range()),
 			        celerity::from_range_mapper(geo, global_total_counts.get_range(), celerity::access::one_to_one{})),
