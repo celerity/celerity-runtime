@@ -7,6 +7,9 @@
 
 #include "grid.h"
 #include "print_utils.h"
+#include "range_mapper.h"
+#include "task_geometry.h"
+#include "utils.h"
 
 namespace celerity {
 
@@ -28,6 +31,28 @@ struct data_requirement_options {
 	bool allocate_exactly = false;
 	bool use_local_indexing = false;
 };
+
+// TODO: Passing buffer range is kind of awkward
+template <int KernelDims, int BufferDims, typename RangeMapperFn>
+std::vector<std::pair<detail::box<3>, detail::region<3>>> from_range_mapper(
+    const custom_task_geometry<KernelDims>& geo, const range<BufferDims>& buffer_range, RangeMapperFn&& fn) {
+	std::vector<std::pair<detail::box<3>, detail::region<3>>> result;
+	detail::range_mapper rm{fn, buffer_range};
+	for(const auto& achunk : geo.assigned_chunks) {
+		const auto sr = detail::subrange_cast<KernelDims>(achunk.box.get_subrange());
+		const chunk<KernelDims> chnk = {sr.offset, sr.range, range_cast<KernelDims>(geo.global_size)};
+		detail::region<3> r;
+		switch(BufferDims) {
+		case 0: r = region_cast<3>(detail::region(detail::box<0>())); break;
+		case 1: r = region_cast<3>(rm.map_1(chnk)); break;
+		case 2: r = region_cast<3>(rm.map_2(chnk)); break;
+		case 3: r = rm.map_3(chnk); break;
+		default: detail::utils::unreachable(); // LCOV_EXCL_LINE
+		}
+		result.push_back({achunk.box, r});
+	}
+	return result;
+}
 
 // TODO API: Naming - not a range mapper (also change file name!)
 // TODO API: Should we make these have dimensionality as well?
