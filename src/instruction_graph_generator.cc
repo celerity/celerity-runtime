@@ -2051,7 +2051,9 @@ instruction* generator_impl::launch_task_kernel(batch& command_batch, const exec
 			if(options.has_value() && options->use_local_indexing) {
 				if(accessed_bounding_box != alloc.box) {
 					// TODO: Implement exact allocation option that ensures this
-					throw std::runtime_error("Cannot use local indexing for access without exact allocation");
+					throw std::runtime_error(fmt::format("Cannot use local indexing for accessor {} on buffer {} / memory {} without exact allocation: "
+					                                     "Allocation {} does not match accessed box {}",
+					    i, bid, alloc.aid.get_memory_id(), alloc.box, accessed_bounding_box));
 				}
 				const auto local_box = box<3>::full_range(alloc.box.get_range());
 				allocation_map[i] = {alloc.aid, local_box, local_box CELERITY_DETAIL_IF_ACCESSOR_BOUNDARY_CHECK(, bid, buffer.debug_name)};
