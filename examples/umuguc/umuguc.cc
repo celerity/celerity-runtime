@@ -191,10 +191,6 @@ int main(int argc, char* argv[]) {
 	const bool swap_xy = get_flag("--swap-xy", &argc, &argv);
 	if(argc != 1) usage();
 
-	// TODO: How do we want to handle warmup for this benchmark? Each phase needs new allocations, but we cannot anticipate them in IDAG.
-	fmt::print("NO WARMUP - TBD\n");
-	fmt::print("Using tile size {:.1f}\n", tile_size);
-
 	std::ifstream input(filename, std::ios::binary);
 	if(!input) {
 		fmt::print(stderr, "Could not open file: {}\n", filename);
@@ -220,6 +216,19 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
+	celerity::queue queue;
+	auto& rt = celerity::detail::runtime::get_instance();
+	const auto rank = rt.NOCOMMIT_get_local_nid();
+	const auto num_ranks = rt.NOCOMMIT_get_num_nodes();
+	// NOCOMMIT: We assume a uniform number of devices per node here - throw if not uniform
+	const size_t num_devices = rt.NOCOMMIT_get_num_local_devices();
+
+	if(rank == 0) {
+		// TODO: How do we want to handle warmup for this benchmark? Each phase needs new allocations, but we cannot anticipate them in IDAG.
+		fmt::print("NO WARMUP - TBD\n");
+		fmt::print("Using tile size {:.1f}\n", tile_size);
+	}
+
 	// TODO: We should get this from metadata
 	umuguc_point3d input_min = {std::numeric_limits<double>::max(), std::numeric_limits<double>::max(), std::numeric_limits<double>::max()};
 	umuguc_point3d input_max = {std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest()};
@@ -233,9 +242,11 @@ int main(int argc, char* argv[]) {
 		input_max.y = std::max(input_max.y, p.y);
 		input_max.z = std::max(input_max.z, p.z);
 	}
-	fmt::print("Read {} points ({:.1f} GiB)\n", points.size(), points.size() * sizeof(umuguc_point3d) / 1024.0 / 1024.0 / 1024.0);
-	fmt::print("Min: ({:.1f}, {:.1f}, {:.1f}), Max: ({:.1f}, {:.1f}, {:.1f}). Extent: ({:.1f}, {:.1f}, {:.1f})\n", input_min.x, input_min.y, input_min.z,
-	    input_max.x, input_max.y, input_max.z, input_max.x - input_min.x, input_max.y - input_min.y, input_max.z - input_min.z);
+	if(rank == 0) {
+		fmt::print("Read {} points ({:.1f} GiB)\n", points.size(), points.size() * sizeof(umuguc_point3d) / 1024.0 / 1024.0 / 1024.0);
+		fmt::print("Min: ({:.1f}, {:.1f}, {:.1f}), Max: ({:.1f}, {:.1f}, {:.1f}). Extent: ({:.1f}, {:.1f}, {:.1f})\n", input_min.x, input_min.y, input_min.z,
+		    input_max.x, input_max.y, input_max.z, input_max.x - input_min.x, input_max.y - input_min.y, input_max.z - input_min.z);
+	}
 
 	const double original_extent_y = input_max.y - input_min.y;
 
@@ -258,13 +269,12 @@ int main(int argc, char* argv[]) {
 			input_min.y = std::min(input_min.y, p.y);
 			input_max.y = std::max(input_max.y, p.y);
 		}
-		fmt::print("Min: ({:.1f}, {:.1f}, {:.1f}), Max: ({:.1f}, {:.1f}, {:.1f}). Extent: ({:.1f}, {:.1f}, {:.1f}) <-- Bounding box of duplication pattern\n",
-		    input_min.x, input_min.y, input_min.z, input_max.x, input_max.y, input_max.z, input_max.x - input_min.x, input_max.y - input_min.y,
-		    input_max.z - input_min.z);
-
-		// std::filesystem::path path(filename);
-		// std::ofstream output(fmt::format("duplication_pattern_{}", path.filename().c_str()), std::ios::binary);
-		// output.write(reinterpret_cast<const char*>(points.data()), points.size() * sizeof(umuguc_point3d));
+		if(rank == 0) {
+			fmt::print(
+			    "Min: ({:.1f}, {:.1f}, {:.1f}), Max: ({:.1f}, {:.1f}, {:.1f}). Extent: ({:.1f}, {:.1f}, {:.1f}) <-- Bounding box of duplication pattern\n",
+			    input_min.x, input_min.y, input_min.z, input_max.x, input_max.y, input_max.z, input_max.x - input_min.x, input_max.y - input_min.y,
+			    input_max.z - input_min.z);
+		}
 	}
 
 	const umuguc_point3d global_min = input_min;
@@ -276,37 +286,28 @@ int main(int argc, char* argv[]) {
 		CELERITY_CRITICAL("Global grid size is {}x{} - try smaller tile size", global_grid_size[1], global_grid_size[0]);
 		exit(1);
 	}
-	// TODO: Is the XY swap really worth the confusion?
-	fmt::print("Global grid size: {}x{}, effective tile size: {:.1f}x{:.1f}\n", global_grid_size[1], global_grid_size[0],
-	    (global_max.x - global_min.x) / global_grid_size[1], (global_max.y - global_min.y) / global_grid_size[0]);
+	if(rank == 0) {
+		// TODO: Is the XY swap really worth the confusion?
+		fmt::print("Global grid size: {}x{}, effective tile size: {:.1f}x{:.1f}\n", global_grid_size[1], global_grid_size[0],
+		    (global_max.x - global_min.x) / global_grid_size[1], (global_max.y - global_min.y) / global_grid_size[0]);
+	}
 
 	using celerity::subrange;
 	using celerity::detail::box;
 	using celerity::detail::region;
 	using celerity::detail::subrange_cast;
 
-	celerity::queue queue;
-
 	const size_t global_num_points = points.size() * duplicate_input;
-
 	celerity::buffer<umuguc_point3d, 1> points_input(global_num_points);
 	celerity::debug::set_buffer_name(points_input, "points input");
-
-	auto& rt = celerity::detail::runtime::get_instance();
-	const auto rank = rt.NOCOMMIT_get_local_nid();
-	const auto num_ranks = rt.NOCOMMIT_get_num_nodes();
-	// // NOCOMMIT: We assume a uniform number of devices per node here
-	// //           => Ideally we should simply not create per-device chunks for remote nodes
-	const size_t num_devices = rt.NOCOMMIT_get_num_local_devices();
 
 #if USE_NCCL
 	std::vector<ncclComm_t> nccl_comms(num_devices);
 	std::vector<int> device_ids;
-	// std::iota(device_ids.begin(), device_ids.end(), 0);
 	for(auto& dev : rt.NOCOMMIT_get_sycl_devices()) {
 		device_ids.push_back(sycl::get_native<sycl::backend::cuda>(dev));
 	}
-	CELERITY_INFO("Creating NCCL comms for devices {}", fmt::join(device_ids, ", "));
+	// CELERITY_INFO("Creating NCCL comms for devices {}", fmt::join(device_ids, ", "));
 	NCCL_CHECK(ncclCommInitAll(nccl_comms.data(), num_devices, device_ids.data()));
 #endif
 
@@ -328,37 +329,32 @@ int main(int argc, char* argv[]) {
 
 	umuguc_point3d local_min = input_min;
 	umuguc_point3d local_max = input_max;
+	const auto duplicates_per_rank = duplicate_input / num_ranks;
+	local_min.y = input_min.y + original_extent_y * rank * duplicates_per_rank;
+	local_max.y = input_max.y + original_extent_y * (rank * duplicates_per_rank + duplicates_per_rank - 1);
 
-	// TODO: Can we move this to device?
-	queue.submit([&](celerity::handler& cgh) {
-		celerity::accessor write_points(points_input, cgh, celerity::access::one_to_one{}, celerity::write_only_host_task, celerity::no_init);
-		cgh.host_task(points_input.get_range(), [=, &points, &local_min, &local_max](celerity::partition<1> part) {
-			if(part.get_subrange().offset[0] % points.size() != 0) throw std::runtime_error("Partition offset is not a multiple of input size?");
-			if(part.get_subrange().range[0] % points.size() != 0) throw std::runtime_error("Partition range is not a multiple of input size?");
+	// Write input to buffer, duplicate
+	// NOTE: If duplicate_input is 1, this is basically host-initializing the buffer with extra steps
+	{
+		celerity::buffer<umuguc_point3d, 1> original_input(points.data(), points.size());
 
-			const auto offset = part.get_subrange().offset[0] / points.size();
-			const auto count = part.get_subrange().range[0] / points.size();
-			fmt::print("OFFSET IS {}, COUNT IS {}\n", offset, count);
-			local_min.y = input_min.y + original_extent_y * offset;
-			local_max.y = input_max.y + original_extent_y * (offset + count - 1);
+		queue.submit([&](celerity::handler& cgh) {
+			celerity::accessor read_points(original_input, cgh, celerity::access::all{}, celerity::read_only);
+			celerity::accessor write_duplicated_points(points_input, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init);
 
-			celerity::experimental::for_each_item(part, [&](celerity::item<1> itm) {
-				const size_t offset = itm[0] / points.size();
-				auto pt = points[itm[0] % points.size()];
+			const size_t original_size = points.size();
+			cgh.parallel_for(global_num_points, [=](celerity::id<1> id) {
+				const size_t offset = id[0] / original_size;
+				auto pt = read_points[id[0] % original_size];
 				// The bounding box of the "duplication pattern" may be different from the original input,
 				// because we split based on point count, not at the geometric center.
 				// Since the pattern is created by offsetting the input by a full bounding box,
 				// we have to use the original extent here for them to seamlessly fit together again.
 				pt.y += original_extent_y * offset;
-				write_points[itm] = pt;
-				if(itm[0] % points.size() == 0) { fmt::print("Offsetting by {:.1f} in y\n", original_extent_y * offset); }
+				write_duplicated_points[id] = pt;
 			});
-
-			// std::filesystem::path path(filename);
-			// std::ofstream output(fmt::format("duplicated_x{}_{}", duplicate_input, path.filename().c_str()), std::ios::binary);
-			// output.write(reinterpret_cast<const char*>(write_points.get_pointer()), part.get_global_size().size() * sizeof(umuguc_point3d));
 		});
-	});
+	}
 
 	print_delta_time("Writing [and duplicating] input to buffer");
 
@@ -383,8 +379,8 @@ int main(int argc, char* argv[]) {
 		CELERITY_CRITICAL("Local grid size is {}x{} - try smaller tile size", local_grid_size[1], local_grid_size[0]);
 		exit(1);
 	}
-	fmt::print("Local grid size: {}x{}, offset: {},{}, effective tile size: {:.1f}x{:.1f}\n", local_grid_size[1], local_grid_size[0], local_grid_offset[1],
-	    local_grid_offset[0], local_extent.x / local_grid_size[1], local_extent.y / local_grid_size[0]);
+	fmt::print("Rank {} local grid size: {}x{}, offset: {},{}, effective tile size: {:.1f}x{:.1f}\n", rank, local_grid_size[1], local_grid_size[0],
+	    local_grid_offset[1], local_grid_offset[0], local_extent.x / local_grid_size[1], local_extent.y / local_grid_size[0]);
 
 	// Sanity check: Does actual bounding box match predicted bounding box?
 #if ENABLE_SANITY_CHECKS
