@@ -19,6 +19,8 @@ using clk = std::chrono::steady_clock;
 
 #define USE_NCCL 1
 
+#define ENABLE_SANITY_CHECKS 0
+
 /**
  * How do we get the multi-pass tile buffer into Celerity?
  *
@@ -387,7 +389,7 @@ int main(int argc, char* argv[]) {
 	    local_grid_offset[0], local_extent.x / local_grid_size[1], local_extent.y / local_grid_size[0]);
 
 	// Sanity check: Does actual bounding box match predicted bounding box?
-#if 1
+#if ENABLE_SANITY_CHECKS
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor read_points(points_input, cgh, celerity::access::one_to_one{}, celerity::read_only_host_task);
 		cgh.host_task(points_input.get_range(), [=](celerity::partition<1> part) {
@@ -1346,7 +1348,7 @@ int main(int argc, char* argv[]) {
 			for(size_t i = 0; i < global_grid_size.size(); ++i) {
 				num_entries[i] += data[i];
 
-#if 1
+#if ENABLE_SANITY_CHECKS
 				// SANITY CHECK: All non-zero counts are within the local grid
 				if(data[i] > 0) {
 					const auto tile_x = i % global_grid_size[1];
@@ -1363,7 +1365,7 @@ int main(int argc, char* argv[]) {
 		}
 
 // Sanity check: Compare the per-rank counts computed in global buffer versus what we computed here
-#if 1
+#if ENABLE_SANITY_CHECKS
 		{
 			celerity::custom_task_geometry sanity_check_counts_geo;
 			sanity_check_counts_geo.global_size = range_cast<3>(celerity::range<1>{num_ranks});
@@ -1426,7 +1428,7 @@ int main(int argc, char* argv[]) {
 
 // Sanity check: Compare the per-rank global counts with what we computed here
 // This is exactly the same logic we used for ther per-rank counts above
-#if 1
+#if ENABLE_SANITY_CHECKS
 		{
 			celerity::custom_task_geometry sanity_check_global_counts_geo;
 			sanity_check_global_counts_geo.global_size = range_cast<3>(celerity::range<1>{num_ranks});
@@ -1471,7 +1473,7 @@ int main(int argc, char* argv[]) {
 #endif
 
 // Sanity check: Are the global row sums correct?
-#if 1
+#if ENABLE_SANITY_CHECKS
 		{
 			queue.submit([&](celerity::handler& cgh) {
 				celerity::accessor read_global_row_sums(global_row_sums, cgh, celerity::access::all{}, celerity::read_only_host_task);
@@ -1530,7 +1532,7 @@ int main(int argc, char* argv[]) {
 
 // Sanity check: Compare the per-rank cumulative counts with what we computed here
 // This is exactly the same logic we used for ther per-rank counts and per-rank global counts above
-#if 1
+#if ENABLE_SANITY_CHECKS
 		{
 			celerity::custom_task_geometry sanity_check_cumulative_counts_geo;
 			std::vector<std::pair<box<3>, region<3>>> read_rank_cumulative_counts_accesses;
@@ -1574,7 +1576,7 @@ int main(int argc, char* argv[]) {
 #endif
 
 // Sanity check: Compare the per-device write offsets with what we computed here
-#if 1
+#if ENABLE_SANITY_CHECKS
 		{
 			celerity::custom_task_geometry sanity_check_device_offsets_geo;
 			std::vector<std::pair<box<3>, region<3>>> read_device_offsets_accesses;
@@ -1644,7 +1646,7 @@ int main(int argc, char* argv[]) {
 		    compute_written_subranges_per_device(rank, num_entries, num_entries_by_rank, num_entries_cumulative, num_entries_per_device);
 
 		// Sanity check: Compare written subranges per device
-#if 1
+#if ENABLE_SANITY_CHECKS
 		{
 			for(size_t i = 0; i < num_devices; ++i) {
 				if(written_subranges_per_device[i].size() != written_subranges_per_device_new[i].size()) {
@@ -1774,7 +1776,7 @@ int main(int argc, char* argv[]) {
 	}
 
 // Sanity check: Shape factor geometry
-#if 1
+#if ENABLE_SANITY_CHECKS
 	{
 		for(size_t i = 0; i < num_devices; ++i) {
 			if(shape_factor_geometry.assigned_chunks[rank * num_devices + i].box != shape_factor_geometry_new.assigned_chunks[i].box) {
@@ -1805,7 +1807,7 @@ int main(int argc, char* argv[]) {
 	print_delta_time("Neighborhood reads computation");
 
 // Sanity check: Neighborhood reads
-#if 1
+#if ENABLE_SANITY_CHECKS
 	{
 		for(size_t i = 0; i < num_devices; ++i) {
 			region<1> device_region;
