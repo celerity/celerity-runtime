@@ -2045,7 +2045,8 @@ instruction* generator_impl::launch_task_kernel(batch& command_batch, const exec
 			// TODO: What this option should actually do is to ensure that the allocation is being made in the right way,
 			//       potentially even splitting an existing allocation (not sure if we'd really want the latter part).
 			if(options.has_value() && options->allocate_exactly && alloc.box != accessed_bounding_box) {
-				throw std::runtime_error("Allocation does not match accessed region");
+				throw std::runtime_error(fmt::format("Allocation for accessor {} on buffer {} / memory {} of shape {} does not match accessed box {}", i, bid,
+				    alloc.aid.get_memory_id(), alloc.box, accessed_bounding_box));
 			}
 			if(options.has_value() && options->use_local_indexing) {
 				if(accessed_bounding_box != alloc.box) {
