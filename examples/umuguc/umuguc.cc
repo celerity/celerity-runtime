@@ -455,6 +455,16 @@ int main(int argc, char* argv[]) {
 	// celerity::buffer<uint32_t, 2> global_cumulative_counts({global_grid_size[0], global_grid_size[1]});
 
 	celerity::buffer<umuguc_point3d, 1> tiles_storage_new(global_num_points);
+
+	celerity::debug::set_buffer_name(per_device_tile_point_counts, "per device tile point counts");
+	celerity::debug::set_buffer_name(per_rank_tile_point_counts, "per rank tile point counts");
+	celerity::debug::set_buffer_name(per_rank_global_counts, "per rank global counts");
+	celerity::debug::set_buffer_name(per_rank_lower_rank_counts, "per rank lower rank counts");
+	celerity::debug::set_buffer_name(per_rank_cumulative_counts, "per rank cumulative counts");
+	celerity::debug::set_buffer_name(global_row_sums, "global row sums");
+	celerity::debug::set_buffer_name(per_rank_add_to_prefix_sum, "per rank add to prefix sum");
+	celerity::debug::set_buffer_name(per_device_write_offsets_buffer, "per device write offsets");
+	// celerity::debug::set_buffer_name(global_cumulative_counts, "global cumulative counts");
 	celerity::debug::set_buffer_name(tiles_storage, "tiles storage (new)");
 
 	queue.wait(celerity::experimental::barrier);
@@ -681,6 +691,7 @@ int main(int argc, char* argv[]) {
 
 		// Compute sum of counts of all ranks that are lower than the current rank
 		// TODO: Can we combine this with the previous task?
+		// TODO: For rank 0 we don't need to do this
 		queue.submit([&](celerity::handler& cgh) {
 			celerity::accessor read_rank_counts(per_rank_tile_point_counts, cgh,
 			    celerity::expert_mapper(box<3>::full_range(per_rank_tile_point_counts.get_range()), read_lower_rank_counts_accesses), celerity::read_only);
@@ -920,6 +931,7 @@ int main(int argc, char* argv[]) {
 		});
 
 		std::vector<std::pair<box<3>, region<3>>> per_chunk_accesses;
+		std::vector<std::pair<box<3>, region<3>>> device_slice_accesses;
 		for(auto& chnk : write_tiles_geometry.assigned_chunks) {
 			if(chnk.nid == rank) {
 				celerity::detail::box_vector<3> device_ranges;
@@ -927,15 +939,23 @@ int main(int argc, char* argv[]) {
 					device_ranges.push_back(subrange_cast<3>(sr));
 				}
 				per_chunk_accesses.push_back({chnk.box, region<3>{std::move(device_ranges)}});
+
+				// TODO: Replace with utility
+				const celerity::id<3> offset = {chnk.nid * num_devices + chnk.did.value(), local_grid_offset[0], local_grid_offset[1]};
+				const celerity::range<3> range = {1, local_grid_size[0], local_grid_size[1]};
+				device_slice_accesses.push_back({chnk.box, box<3>(subrange<3>{offset, range})});
 			} else {
 				per_chunk_accesses.push_back({chnk.box, {}});
+				device_slice_accesses.push_back({chnk.box, {}});
 			}
 		}
-		celerity::expert_mapper tile_accesses{box_cast<3>(box<1>::full_range(tiles_storage.get_range())), per_chunk_accesses};
+		celerity::expert_mapper tile_accesses{range_cast<3>(tiles_storage_new.get_range()), per_chunk_accesses};
+		celerity::expert_mapper read_write_offsets_reqs{device_slice_accesses};
+		read_write_offsets_reqs.options.use_local_indexing = true;
 
 		queue.submit([&](celerity::handler& cgh) {
 			celerity::accessor read_points(points_input, cgh, celerity::access::one_to_one{}, celerity::read_only);
-			celerity::accessor read_write_offsets(per_device_write_offsets_buffer, cgh, write_device_count_access /* FIXME Rename */, celerity::read_only);
+			celerity::accessor read_write_offsets(per_device_write_offsets_buffer, cgh, read_write_offsets_reqs, celerity::read_only);
 			celerity::accessor write_counts(per_device_tile_point_counts, cgh, write_device_count_access, celerity::write_only, celerity::no_init);
 			celerity::accessor write_tiles(tiles_storage_new, cgh, tile_accesses, celerity::write_only, celerity::no_init);
 
@@ -1086,19 +1106,25 @@ int main(int argc, char* argv[]) {
 					assert(end_it != counts_linear.end() || sr.offset[0] + sr.range[0] == global_num_points);
 
 					const uint32_t start_tile = start_it - counts_linear.begin();
-					const uint32_t end_tile = end_it != counts_linear.end() ? end_it - counts_linear.begin() : global_grid_size.size();
+					const uint32_t end_tile = end_it != counts_linear.end() ? end_it - counts_linear.begin() : local_grid_size.size();
 
 					// Compute inclusive start and end coordinates in 2D
-					const celerity::id<2> first = {start_tile / global_grid_size[1], start_tile % global_grid_size[1]};
-					const celerity::id<2> last = celerity::id<2>{(end_tile - 1) / global_grid_size[1], (end_tile - 1) % global_grid_size[1]};
+					// TODO: This is all done in LOCAL coordinates - will have to be adjusted if we need to read outside local bounding box!
+					const celerity::id<2> first = {start_tile / local_grid_size[1], start_tile % local_grid_size[1]};
+					const celerity::id<2> last = celerity::id<2>{(end_tile - 1) / local_grid_size[1], (end_tile - 1) % local_grid_size[1]};
 
 					celerity::detail::box_vector<1> read_boxes;
 					const auto add_box = [&](const celerity::id<2>& min, const celerity::id<2>& max) {
-						// TODO: Couldn't we just index into the 2D accessor?
-						const auto min_local = min - local_grid_offset;
-						const auto max_local = max - local_grid_offset;
-						const uint32_t start_1d = min_local[0] * local_grid_size[1] + min_local[1];
-						const uint32_t end_1d = max_local[0] * local_grid_size[1] + max_local[1] + 1; // +1: Convert back to exclusive
+						if(celerity::detail::all_true(min < local_grid_offset) || celerity::detail::all_true(max >= local_grid_offset + local_grid_size)) {
+							// This shouldn't happen, as we've established above (reading outside local bounding box is not yet implemented)
+							throw std::runtime_error("Neighborhood is outside local bounding box?");
+						}
+						const uint32_t start_1d = min[0] * local_grid_size[1] + min[1];
+						const uint32_t end_1d = max[0] * local_grid_size[1] + max[1] + 1; // +1: Convert back to exclusive
+						if(end_1d == counts_linear.size() && (rank != num_ranks - 1 || i != num_devices - 1)) {
+							// Just to be really sure
+							throw std::runtime_error("Neighborhood is outside local bounding box?");
+						}
 						read_boxes.push_back({counts_linear[start_1d], end_1d < counts_linear.size() ? counts_linear[end_1d] : global_num_points});
 					};
 
@@ -1106,7 +1132,7 @@ int main(int argc, char* argv[]) {
 					celerity::id<2> main_neighborhood_start = first;
 					celerity::id<2> main_neighborhood_end = last;
 					if(first[1] > 0) { main_neighborhood_start[1]--; }
-					if(last[1] < global_grid_size[1] - 1) { main_neighborhood_end[1]++; }
+					if(last[1] < local_grid_size[1] - 1) { main_neighborhood_end[1]++; }
 					add_box(main_neighborhood_start, main_neighborhood_end);
 
 					// Add top neighbors
@@ -1119,9 +1145,9 @@ int main(int argc, char* argv[]) {
 					}
 
 					// Add bottom neighbors
-					if(first[0] < global_grid_size[0] - 1) {
+					if(first[0] < local_grid_size[0] - 1) {
 						auto adjusted_end = main_neighborhood_end;
-						if(last[0] == global_grid_size[0] - 1) { adjusted_end = {global_grid_size[0] - 2, global_grid_size[1] - 1}; }
+						if(last[0] == local_grid_size[0] - 1) { adjusted_end = {local_grid_size[0] - 2, local_grid_size[1] - 1}; }
 						const celerity::id<2> bottom_neighborhood_start = {main_neighborhood_start[0] + 1, main_neighborhood_start[1]};
 						const celerity::id<2> bottom_neighborhood_end = {adjusted_end[0] + 1, adjusted_end[1]};
 						add_box(bottom_neighborhood_start, bottom_neighborhood_end);

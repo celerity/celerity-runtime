@@ -387,6 +387,7 @@ std::vector<celerity::detail::region<Dims>> allgather_regions(celerity::detail::
 	for(size_t i = 0; i < num_ranks; ++i) {
 		if(i == rank) {
 			result[i] = std::move(local_region);
+			next_rank_start += num_boxes_per_rank[i];
 			continue;
 		}
 		celerity::detail::region_builder<Dims> builder;
