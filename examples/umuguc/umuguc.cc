@@ -1416,6 +1416,7 @@ int main(int argc, char* argv[]) {
 
 		// First do an allgather to get the individual counts from all ranks
 		std::vector<uint32_t> num_entries_by_rank(global_grid_size.size() * num_ranks);
+		static_assert(std::is_same_v<decltype(num_entries), std::vector<uint32_t>>, "Don't forget to adjust MPI types");
 		MPI_Allgather(num_entries.data(), num_entries.size(), MPI_UINT32_T, num_entries_by_rank.data(), num_entries.size(), MPI_UINT32_T, MPI_COMM_WORLD);
 		// if(rank == 0) fmt::print("Entries by rank: {}\n", fmt::join(num_entries_by_rank, ","));
 
