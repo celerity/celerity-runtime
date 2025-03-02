@@ -232,8 +232,8 @@ int main(int argc, char* argv[]) {
 	input.read(reinterpret_cast<char*>(points.data()), file_size);
 
 	if(points.size() * duplicate_input > std::numeric_limits<IndexT>::max()) {
-		fmt::print(
-		    stderr, "Too many points for 32 bit counting. Time to upgrade!: {}x{} = {}\n", points.size(), duplicate_input, points.size() * duplicate_input);
+		fmt::print(stderr, "Too many points for 32 bit counting. Time to switch to 64 bit!: {}x{} = {}\n", points.size(), duplicate_input,
+		    points.size() * duplicate_input);
 		return 1;
 	}
 
@@ -250,7 +250,7 @@ int main(int argc, char* argv[]) {
 	const size_t num_devices = rt.NOCOMMIT_get_num_local_devices();
 
 	if(rank == 0) {
-		if(!preallocate_buffers) puts("Buffers are NOT being preallocated - expected delays!\n");
+		if(!preallocate_buffers) puts("Buffers are NOT being preallocated - expect delays!\n");
 		fmt::print("Using tile size {:.1f}\n", tile_size);
 	}
 
@@ -390,10 +390,14 @@ int main(int argc, char* argv[]) {
 	const auto [local_grid_size, local_grid_offset] = ([&] {
 		celerity::range<2> size = {static_cast<IndexT>(std::round(local_extent.y / tile_size)), static_cast<IndexT>(std::round(local_extent.x / tile_size))};
 		celerity::id<2> offset = {static_cast<IndexT>((local_min.y - global_min.y) / tile_size), static_cast<IndexT>((local_min.x - global_min.x) / tile_size)};
-		if(offset[0] + size[0] < global_grid_size[0]) size[0]++;
-		if(offset[0] > 0) {
-			offset[0]--;
-			size[0]++;
+		// UPDATE: Well, turns out for larger runs on Leonardo (>= 64 duplication on >= 64 GPUs) we need 2 cells of overlap...
+		// TODO: Figure this out!
+		for(int i = 0; i < 2; ++i) {
+			if(offset[0] + size[0] < global_grid_size[0]) size[0]++;
+			if(offset[0] > 0) {
+				offset[0]--;
+				size[0]++;
+			}
 		}
 		return std::pair{size, offset};
 	})(); // IIFE
@@ -606,7 +610,7 @@ int main(int argc, char* argv[]) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor read_points(points_input, cgh, celerity::access::one_to_one{}, celerity::read_only);
 		celerity::accessor write_counts(per_device_point_counts, cgh, write_device_count_access, celerity::write_only, celerity::no_init);
-		celerity::debug::set_task_name(cgh, "count points (global)");
+		celerity::debug::set_task_name(cgh, "count points");
 
 		cgh.assert_no_data_movement(celerity::detail::data_movement_scope::inter_node);
 		cgh.parallel_for(write_tiles_geometry, [=](celerity::id<1> id) {
