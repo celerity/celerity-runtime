@@ -400,18 +400,20 @@ std::vector<celerity::detail::region<Dims>> allgather_regions(celerity::detail::
 	return result;
 }
 
+template <typename IndexT>
 struct tilebuffer_item {
 	celerity::id<2> slot;
-	uint32_t index = 0;
+	IndexT index = 0;
 };
 
 /// Returns the index of the current "item" (point in a tile) being processed by the given thread
 /// TODO: Only works for 2D buffers
-inline tilebuffer_item get_current_item(const celerity::id<1>& thread_idx, const celerity::range<2>& local_grid_size, const celerity::id<2>& local_grid_offset,
-    const uint32_t* num_entries_cumulative) {
+template <typename IndexT>
+inline tilebuffer_item<IndexT> get_current_item(const celerity::id<1>& thread_idx, const celerity::range<2>& local_grid_size,
+    const celerity::id<2>& local_grid_offset, const IndexT* num_entries_cumulative) {
 	const auto buffer_size = local_grid_size.size();
-	uint32_t min = 0;
-	uint32_t max = buffer_size;
+	IndexT min = 0;
+	IndexT max = buffer_size;
 	auto midpoint = (min + max) / 2;
 
 	// do binary search until we find an index i such that num_entries_cumulative[i] <= thread_idx and
@@ -427,7 +429,7 @@ inline tilebuffer_item get_current_item(const celerity::id<1>& thread_idx, const
 	}
 
 	// Now compute actual index
-	const uint32_t index = thread_idx[0] - num_entries_cumulative[midpoint];
+	const IndexT index = thread_idx[0] - num_entries_cumulative[midpoint];
 	celerity::id<2> slot;
 	slot[0] = local_grid_offset[0] + midpoint / local_grid_size[1];
 	slot[1] = local_grid_offset[1] + midpoint % local_grid_size[1];

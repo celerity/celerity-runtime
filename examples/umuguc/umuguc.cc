@@ -20,6 +20,10 @@ using clk = std::chrono::steady_clock;
 
 #define ENABLE_SANITY_CHECKS 0
 
+// Limits the total number of points we can process (4 billion for uint32_t)
+// using IndexT = uint32_t;
+using IndexT = uint64_t;
+
 /**
  * How do we get the multi-pass tile buffer into Celerity?
  *
@@ -207,7 +211,7 @@ int main(int argc, char* argv[]) {
 	// to work (somewhat) efficiently; we may have to rotate some files.
 	const bool swap_xy = get_flag("--swap-xy", &argc, &argv);
 	const bool precise_timings = get_flag("--precise-timings", &argc, &argv);
-	const bool initialize_buffers = get_flag("--initialize-buffers", &argc, &argv);
+	const bool preallocate_buffers = get_flag("--preallocate-buffers", &argc, &argv);
 	if(argc != 1) usage();
 
 	std::ifstream input(filename, std::ios::binary);
@@ -224,12 +228,12 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
-	// TODO: We currently use uint32_t for number of entries, which limits us to 4B points
 	std::vector<umuguc_point3d> points(file_size / sizeof(umuguc_point3d));
 	input.read(reinterpret_cast<char*>(points.data()), file_size);
 
-	if(points.size() * duplicate_input > std::numeric_limits<uint32_t>::max()) {
-		fmt::print(stderr, "Too many points for 32 bit counting. Time to upgrade!: {}\n", points.size());
+	if(points.size() * duplicate_input > std::numeric_limits<IndexT>::max()) {
+		fmt::print(
+		    stderr, "Too many points for 32 bit counting. Time to upgrade!: {}x{} = {}\n", points.size(), duplicate_input, points.size() * duplicate_input);
 		return 1;
 	}
 
@@ -246,8 +250,7 @@ int main(int argc, char* argv[]) {
 	const size_t num_devices = rt.NOCOMMIT_get_num_local_devices();
 
 	if(rank == 0) {
-		// TODO: How do we want to handle warmup for this benchmark? Each phase needs new allocations, but we cannot anticipate them in IDAG.
-		fmt::print("NO WARMUP - TBD\n");
+		if(!preallocate_buffers) puts("Buffers are NOT being preallocated - expected delays!\n");
 		fmt::print("Using tile size {:.1f}\n", tile_size);
 	}
 
@@ -303,7 +306,7 @@ int main(int argc, char* argv[]) {
 	const umuguc_point3d global_max = {input_max.x, input_max.y + original_extent_y * (duplicate_input - 1), input_max.z};
 	const umuguc_point3d global_extent = {global_max.x - global_min.x, global_max.y - global_min.y, global_max.z - global_min.z};
 	const celerity::range<2> global_grid_size = {
-	    static_cast<uint32_t>(std::round(global_extent.y / tile_size)), static_cast<uint32_t>(std::round(global_extent.x / tile_size))};
+	    static_cast<IndexT>(std::round(global_extent.y / tile_size)), static_cast<IndexT>(std::round(global_extent.x / tile_size))};
 	if(global_grid_size.size() == 0) {
 		CELERITY_CRITICAL("Global grid size is {}x{} - try smaller tile size", global_grid_size[1], global_grid_size[0]);
 		exit(1);
@@ -385,10 +388,8 @@ int main(int argc, char* argv[]) {
 	// size along the Y-axis in both directions by one tile. This is not a problem in practice because we only use the local grid to declare
 	// data requirements, i.e., we at most incur a very small allocation and transfer overhead.
 	const auto [local_grid_size, local_grid_offset] = ([&] {
-		celerity::range<2> size = {
-		    static_cast<uint32_t>(std::round(local_extent.y / tile_size)), static_cast<uint32_t>(std::round(local_extent.x / tile_size))};
-		celerity::id<2> offset = {
-		    static_cast<uint32_t>((local_min.y - global_min.y) / tile_size), static_cast<uint32_t>((local_min.x - global_min.x) / tile_size)};
+		celerity::range<2> size = {static_cast<IndexT>(std::round(local_extent.y / tile_size)), static_cast<IndexT>(std::round(local_extent.x / tile_size))};
+		celerity::id<2> offset = {static_cast<IndexT>((local_min.y - global_min.y) / tile_size), static_cast<IndexT>((local_min.x - global_min.x) / tile_size)};
 		if(offset[0] + size[0] < global_grid_size[0]) size[0]++;
 		if(offset[0] > 0) {
 			offset[0]--;
@@ -449,27 +450,27 @@ int main(int argc, char* argv[]) {
 		write_tiles_geometry.assigned_chunks.push_back({chunks[i].get_subrange(), (i / num_devices), (i % num_devices)});
 	}
 
-	celerity::buffer<uint32_t, 3> per_device_point_counts({num_ranks * num_devices, global_grid_size[0], global_grid_size[1]});
-	celerity::buffer<uint32_t, 3> per_rank_point_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
+	celerity::buffer<IndexT, 3> per_device_point_counts({num_ranks * num_devices, global_grid_size[0], global_grid_size[1]});
+	celerity::buffer<IndexT, 3> per_rank_point_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
 	// Each rank constructs its own copy of the global counts within its local bounding box
 	// This means incorporating counts from all other ranks that have an overlapping bounding box
-	celerity::buffer<uint32_t, 3> per_rank_global_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
+	celerity::buffer<IndexT, 3> per_rank_global_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
 	// Counts of all ranks that are lower than the given rank (i.e, for rank 0 it will be empty), within the local bounding box
 	// Required for determining the actual write offset on this rank (lower ranks write first)
-	celerity::buffer<uint32_t, 3> per_rank_lower_rank_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
+	celerity::buffer<IndexT, 3> per_rank_lower_rank_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
 	// Global prefix sum (within the local bounding box)
-	celerity::buffer<uint32_t, 3> per_rank_cumulative_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
+	celerity::buffer<IndexT, 3> per_rank_cumulative_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
 	// Sum of values in each row of the global bounding box. Required for computing the final global prefix sum on each rank.
-	celerity::buffer<uint32_t, 1> global_row_sums({global_grid_size[0]});
+	celerity::buffer<IndexT, 1> global_row_sums({global_grid_size[0]});
 	// The value that needs to be added to the local prefix sum to complete it. Computed as the sum across all rows above local bounding box.
-	celerity::buffer<uint32_t, 1> per_rank_add_to_prefix_sum({num_ranks});
+	celerity::buffer<IndexT, 1> per_rank_add_to_prefix_sum({num_ranks});
 	// The offset each device starts writing at within each tile. Computed as the global prefix sum + the point counts of all lower ranks and devices.
-	celerity::buffer<uint32_t, 3> per_device_write_offsets({num_ranks * num_devices, global_grid_size[0], global_grid_size[1]});
+	celerity::buffer<IndexT, 3> per_device_write_offsets({num_ranks * num_devices, global_grid_size[0], global_grid_size[1]});
 	// Same as per_rank_cumulative_counts, but in a single, global view. Required for exchanging counts for neighborhood access calculation.
 	// TODO: Not the most elegant solution
 	// => Turns out we don't need it for a 1-neighborhood (at least with all the current data sets we have)
 	// BUT: We do need it for writing output at the end
-	celerity::buffer<uint32_t, 2> global_cumulative_counts({global_grid_size[0], global_grid_size[1]});
+	celerity::buffer<IndexT, 2> global_cumulative_counts({global_grid_size[0], global_grid_size[1]});
 
 	celerity::buffer<umuguc_point3d, 1> tiles_storage(global_num_points);
 	celerity::buffer<sycl::double3, 1> shape_factors(global_num_points);
@@ -522,7 +523,7 @@ int main(int argc, char* argv[]) {
 
 	// Initialize most buffers
 	// For the tile storage buffer we unfortunately don't know the accessed range yet
-	if(initialize_buffers) {
+	if(preallocate_buffers) {
 		celerity::custom_task_geometry<3> all_devices_geo;
 		for(size_t i = 0; i < num_devices; ++i) {
 			all_devices_geo.assigned_chunks.push_back({device_slice(i), rank, i});
@@ -611,12 +612,12 @@ int main(int argc, char* argv[]) {
 		cgh.parallel_for(write_tiles_geometry, [=](celerity::id<1> id) {
 			const auto& p = read_points[id];
 			// grid_size - 1: We divide the domain such the last tile contains the maximum value
-			const auto tile_x = static_cast<uint32_t>((p.x - global_min.x) / global_extent.x * (global_grid_size[1] - 1));
-			const auto tile_y = static_cast<uint32_t>((p.y - global_min.y) / global_extent.y * (global_grid_size[0] - 1));
+			const auto tile_x = static_cast<IndexT>((p.x - global_min.x) / global_extent.x * (global_grid_size[1] - 1));
+			const auto tile_y = static_cast<IndexT>((p.y - global_min.y) / global_extent.y * (global_grid_size[0] - 1));
 			auto device_slice = write_counts[0]; // 0 because we use local indexing
 			const auto local_tile_x = tile_x - local_grid_offset[1];
 			const auto local_tile_y = tile_y - local_grid_offset[0];
-			sycl::atomic_ref<uint32_t, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{device_slice[local_tile_y][local_tile_x]};
+			sycl::atomic_ref<IndexT, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{device_slice[local_tile_y][local_tile_x]};
 			ref++;
 		});
 	});
@@ -657,9 +658,9 @@ int main(int argc, char* argv[]) {
 				//     "Hello from interop task for device {}. Device counts: {}, rank counts: {}", device_idx, (void*)device_counts_ptr,
 				//     (void*)rank_counts_ptr);
 				auto stream = ih.get_native_queue<sycl::backend::cuda>();
-				static_assert(std::is_same_v<decltype(per_rank_point_counts), celerity::buffer<uint32_t, 3>>); // Adjust NCCL type if this fails
+				const auto nccl_type = std::is_same_v<IndexT, uint32_t> ? ncclUint32 : ncclUint64;
 				// TODO: Can / should we register buffer with NCCL first?
-				NCCL_CHECK(ncclReduce(device_counts_ptr, rank_counts_ptr, local_grid_size.size(), ncclUint32, ncclSum, 0, nccl_comms[device_idx], stream));
+				NCCL_CHECK(ncclReduce(device_counts_ptr, rank_counts_ptr, local_grid_size.size(), nccl_type, ncclSum, 0, nccl_comms[device_idx], stream));
 			});
 		});
 #else
@@ -763,7 +764,7 @@ int main(int argc, char* argv[]) {
 			celerity::debug::set_task_name(cgh, "sum overlapping remote counts");
 			cgh.parallel_for(global_sum_geo, [=](celerity::id<3> id) {
 				const auto source_rank = read_rank_counts.experimental_get_allocation_offset()[0];
-				sycl::atomic_ref<uint32_t, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{write_global_counts[id]};
+				sycl::atomic_ref<IndexT, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{write_global_counts[id]};
 				ref += read_rank_counts[source_rank][id[1]][id[2]];
 			});
 		});
@@ -782,7 +783,7 @@ int main(int argc, char* argv[]) {
 			cgh.assert_no_data_movement(); // We already have the data where we need it from the previous task
 			cgh.parallel_for(lower_rank_sum_geo, [=](celerity::id<3> id) {
 				const auto source_rank = read_rank_counts.experimental_get_allocation_offset()[0];
-				sycl::atomic_ref<uint32_t, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{write_lower_rank_sum[id]};
+				sycl::atomic_ref<IndexT, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{write_lower_rank_sum[id]};
 				ref += read_rank_counts[source_rank][id[1]][id[2]];
 			});
 		});
@@ -802,8 +803,8 @@ int main(int argc, char* argv[]) {
 			celerity::debug::set_task_name(cgh, "prefix sum local counts");
 			cgh.assert_no_data_movement();
 			cgh.interop_task(geo, [=](celerity::interop_handle& ih, celerity::partition<3> part) {
-				thrust::device_ptr<uint32_t> global_counts_ptr(ih.get_native_mem(read_global_counts));
-				thrust::device_ptr<uint32_t> cumulative_counts_ptr(ih.get_native_mem(write_cumulative_counts));
+				thrust::device_ptr<IndexT> global_counts_ptr(ih.get_native_mem(read_global_counts));
+				thrust::device_ptr<IndexT> cumulative_counts_ptr(ih.get_native_mem(write_cumulative_counts));
 				auto stream = ih.get_native_queue<sycl::backend::cuda>();
 				thrust::async::exclusive_scan(
 				    thrust::device.on(stream), global_counts_ptr, global_counts_ptr + local_grid_size.size(), cumulative_counts_ptr, 0);
@@ -850,7 +851,7 @@ int main(int argc, char* argv[]) {
 			celerity::debug::set_task_name(cgh, "compute add to prefix sum");
 			cgh.host_task(celerity::range<1>(num_ranks), [=](celerity::partition<1> part) {
 				if(part.get_subrange().offset[0] != rank) throw std::runtime_error("Partition offset is not the rank?");
-				uint32_t sum = 0;
+				IndexT sum = 0;
 				for(size_t i = 0; i < local_grid_offset[0]; ++i) {
 					sum += read_row_sums[i];
 				}
@@ -1028,13 +1029,13 @@ int main(int argc, char* argv[]) {
 				// TODO: Keep DRY with above
 				const auto& p = read_points[id];
 				// grid_size - 1: We divide the domain such the last tile contains the maximum value
-				const auto tile_x = static_cast<uint32_t>((p.x - global_min.x) / global_extent.x * (global_grid_size[1] - 1));
-				const auto tile_y = static_cast<uint32_t>((p.y - global_min.y) / global_extent.y * (global_grid_size[0] - 1));
+				const auto tile_x = static_cast<IndexT>((p.x - global_min.x) / global_extent.x * (global_grid_size[1] - 1));
+				const auto tile_y = static_cast<IndexT>((p.y - global_min.y) / global_extent.y * (global_grid_size[0] - 1));
 				auto device_slice = write_counts[0]; // 0 because we use local indexing
 				const auto local_tile_x = tile_x - local_grid_offset[1];
 				const auto local_tile_y = tile_y - local_grid_offset[0];
-				sycl::atomic_ref<uint32_t, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{device_slice[local_tile_y][local_tile_x]};
-				const uint32_t offset = ref.fetch_add(uint32_t(1));
+				sycl::atomic_ref<IndexT, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{device_slice[local_tile_y][local_tile_x]};
+				const IndexT offset = ref.fetch_add(IndexT(1));
 				write_tiles[read_write_offsets[0][local_tile_y][local_tile_x] + offset] = p;
 			});
 		});
@@ -1058,8 +1059,8 @@ int main(int argc, char* argv[]) {
 					const auto ptr = cumulative_counts.get_allocation_window(part).get_allocation();
 					const std::span counts_linear(ptr, local_grid_size[0] * local_grid_size[1]);
 					const size_t ideal_points_per_device = global_num_points / (num_ranks * num_devices);
-					const uint32_t device_gid = rank * num_devices + i;
-					const uint32_t device_offset = device_gid * ideal_points_per_device;
+					const IndexT device_gid = rank * num_devices + i;
+					const IndexT device_offset = device_gid * ideal_points_per_device;
 
 					// This only works under the assumption that we have a "contiguous chunk" of counts
 					assert(local_grid_size[1] == global_grid_size[1]);
@@ -1163,8 +1164,8 @@ int main(int argc, char* argv[]) {
 					const auto end_it = std::lower_bound(start_it, counts_linear.end(), sr.offset[0] + sr.range[0]);
 					assert(end_it != counts_linear.end() || sr.offset[0] + sr.range[0] == global_num_points);
 
-					const uint32_t start_tile = start_it - counts_linear.begin();
-					const uint32_t end_tile = end_it != counts_linear.end() ? end_it - counts_linear.begin() : local_grid_size.size();
+					const IndexT start_tile = start_it - counts_linear.begin();
+					const IndexT end_tile = end_it != counts_linear.end() ? end_it - counts_linear.begin() : local_grid_size.size();
 
 					// Compute inclusive start and end coordinates in 2D
 					// TODO: This is all done in LOCAL coordinates - will have to be adjusted if we need to read outside local bounding box!
@@ -1177,8 +1178,8 @@ int main(int argc, char* argv[]) {
 							// This shouldn't happen, as we've established above (reading outside local bounding box is not yet implemented)
 							throw std::runtime_error("Neighborhood is outside local bounding box?");
 						}
-						const uint32_t start_1d = min[0] * local_grid_size[1] + min[1];
-						const uint32_t end_1d = max[0] * local_grid_size[1] + max[1] + 1; // +1: Convert back to exclusive
+						const IndexT start_1d = min[0] * local_grid_size[1] + min[1];
+						const IndexT end_1d = max[0] * local_grid_size[1] + max[1] + 1; // +1: Convert back to exclusive
 						if(end_1d == counts_linear.size() && (rank != num_ranks - 1 || i != num_devices - 1)) {
 							// Just to be really sure
 							throw std::runtime_error("Neighborhood is outside local bounding box?");
@@ -1276,7 +1277,7 @@ int main(int argc, char* argv[]) {
 					return matrix;
 				};
 
-				const auto& get_point = [=](const tilebuffer_item& itm) {
+				const auto& get_point = [=](const tilebuffer_item<IndexT>& itm) {
 					// TODO: Wait, isn't that just the kernel's thread id?
 					return read_tiles[read_cumulative_counts[rank][itm.slot[0]][itm.slot[1]] + itm.index];
 				};
@@ -1310,9 +1311,9 @@ int main(int argc, char* argv[]) {
 				double sum_fermi = 0.0;
 				for(int j = -local_search_radius; j <= local_search_radius; ++j) {
 					for(int k = -local_search_radius; k <= local_search_radius; ++k) {
-						const int32_t x = item.slot[1] + k;
-						const int32_t y = item.slot[0] + j;
-						if(x < 0 || y < 0 || uint32_t(x) >= global_grid_size[1] || uint32_t(y) >= global_grid_size[0]) continue;
+						const auto x = static_cast<std::make_signed_t<IndexT>>(item.slot[1]) + k;
+						const auto y = static_cast<std::make_signed_t<IndexT>>(item.slot[0]) + j;
+						if(x < 0 || y < 0 || IndexT(x) >= global_grid_size[1] || IndexT(y) >= global_grid_size[0]) continue;
 
 						for(auto& p2 : get_slot(celerity::id<2>(y, x))) {
 							const umuguc_point3d p3 = {p.x - p2.x, p.y - p2.y, p.z - p2.z};
@@ -1367,7 +1368,7 @@ int main(int argc, char* argv[]) {
 		// Same issue as for the cumulative counts if we had to compute neighborhoods outside the local bounding box:
 		// If one rank needs counts outside its local bounding box, we need a globally accessible copy of the data somewhere.
 		// TODO: Any way to avoid this? (For a real application we would use distributed I/O, but that is overkill here)
-		celerity::buffer<uint32_t, 2> global_total_counts({global_grid_size[0], global_grid_size[1]});
+		celerity::buffer<IndexT, 2> global_total_counts({global_grid_size[0], global_grid_size[1]});
 
 		// Copy authoritative rows into global buffer
 		queue.submit([&](celerity::handler& cgh) {
