@@ -592,7 +592,7 @@ int main(int argc, char* argv[]) {
 	//       knows that it didn't really write the range, and so will not generate a push (in fact it will believe someone else to be the
 	//       owner). If we wanted to do this correctly, we'd have to pass the local grid size of each node.
 	celerity::expert_mapper write_device_count_access{box<3>::full_range(per_device_point_counts.get_range()), access_device_slices(write_tiles_geometry)};
-	write_device_count_access.options.use_local_indexing = true;
+	write_device_count_access.options.allocate_exactly = true;
 
 	// TODO: Where is handler::fill... Although it's unclear how that would work in SPMD context (each rank wants to fill its own slice)
 	// Easiest solution for now would probably be a "data access property" (like exact allocation, local indexing) that says what to initialize to
@@ -621,10 +621,8 @@ int main(int argc, char* argv[]) {
 			// grid_size - 1: We divide the domain such the last tile contains the maximum value
 			const auto tile_x = static_cast<IndexT>((p.x - global_min.x) / global_extent.x * (global_grid_size[1] - 1));
 			const auto tile_y = static_cast<IndexT>((p.y - global_min.y) / global_extent.y * (global_grid_size[0] - 1));
-			auto device_slice = write_counts[0]; // 0 because we use local indexing
-			const auto local_tile_x = tile_x - local_grid_offset[1];
-			const auto local_tile_y = tile_y - local_grid_offset[0];
-			sycl::atomic_ref<CountT, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{device_slice[local_tile_y][local_tile_x]};
+			const auto device = write_counts.experimental_get_allocation_offset()[0];
+			sycl::atomic_ref<CountT, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{write_counts[device][tile_y][tile_x]};
 			ref++;
 		});
 	});
@@ -1023,7 +1021,7 @@ int main(int argc, char* argv[]) {
 		}
 		celerity::expert_mapper tile_accesses{range_cast<3>(tiles_storage.get_range()), per_chunk_accesses};
 		celerity::expert_mapper read_write_offsets_reqs{access_device_slices(write_tiles_geometry)};
-		read_write_offsets_reqs.options.use_local_indexing = true;
+		read_write_offsets_reqs.options.allocate_exactly = true;
 
 		queue.submit([&](celerity::handler& cgh) {
 			celerity::accessor read_points(points_input, cgh, celerity::access::one_to_one{}, celerity::read_only);
@@ -1039,12 +1037,10 @@ int main(int argc, char* argv[]) {
 				// grid_size - 1: We divide the domain such the last tile contains the maximum value
 				const auto tile_x = static_cast<IndexT>((p.x - global_min.x) / global_extent.x * (global_grid_size[1] - 1));
 				const auto tile_y = static_cast<IndexT>((p.y - global_min.y) / global_extent.y * (global_grid_size[0] - 1));
-				auto device_slice = write_counts[0]; // 0 because we use local indexing
-				const auto local_tile_x = tile_x - local_grid_offset[1];
-				const auto local_tile_y = tile_y - local_grid_offset[0];
-				sycl::atomic_ref<CountT, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{device_slice[local_tile_y][local_tile_x]};
+				const auto device = write_counts.experimental_get_allocation_offset()[0];
+				sycl::atomic_ref<CountT, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{write_counts[device][tile_y][tile_x]};
 				const IndexT offset = ref.fetch_add(CountT(1));
-				write_tiles[read_write_offsets[0][local_tile_y][local_tile_x] + offset] = p;
+				write_tiles[read_write_offsets[device][tile_y][tile_x] + offset] = p;
 			});
 		});
 	}
