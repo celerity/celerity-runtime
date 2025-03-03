@@ -24,6 +24,9 @@ using clk = std::chrono::steady_clock;
 // using IndexT = uint32_t;
 using IndexT = uint64_t;
 
+// Limits the total number of points per cell (we should never exceed a couple thousand).
+using CountT = uint32_t;
+
 /**
  * How do we get the multi-pass tile buffer into Celerity?
  *
@@ -454,14 +457,14 @@ int main(int argc, char* argv[]) {
 		write_tiles_geometry.assigned_chunks.push_back({chunks[i].get_subrange(), (i / num_devices), (i % num_devices)});
 	}
 
-	celerity::buffer<IndexT, 3> per_device_point_counts({num_ranks * num_devices, global_grid_size[0], global_grid_size[1]});
-	celerity::buffer<IndexT, 3> per_rank_point_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
+	celerity::buffer<CountT, 3> per_device_point_counts({num_ranks * num_devices, global_grid_size[0], global_grid_size[1]});
+	celerity::buffer<CountT, 3> per_rank_point_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
 	// Each rank constructs its own copy of the global counts within its local bounding box
 	// This means incorporating counts from all other ranks that have an overlapping bounding box
-	celerity::buffer<IndexT, 3> per_rank_global_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
+	celerity::buffer<CountT, 3> per_rank_global_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
 	// Counts of all ranks that are lower than the given rank (i.e, for rank 0 it will be empty), within the local bounding box
 	// Required for determining the actual write offset on this rank (lower ranks write first)
-	celerity::buffer<IndexT, 3> per_rank_lower_rank_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
+	celerity::buffer<CountT, 3> per_rank_lower_rank_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
 	// Global prefix sum (within the local bounding box)
 	celerity::buffer<IndexT, 3> per_rank_cumulative_counts({num_ranks, global_grid_size[0], global_grid_size[1]});
 	// Sum of values in each row of the global bounding box. Required for computing the final global prefix sum on each rank.
@@ -621,7 +624,7 @@ int main(int argc, char* argv[]) {
 			auto device_slice = write_counts[0]; // 0 because we use local indexing
 			const auto local_tile_x = tile_x - local_grid_offset[1];
 			const auto local_tile_y = tile_y - local_grid_offset[0];
-			sycl::atomic_ref<IndexT, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{device_slice[local_tile_y][local_tile_x]};
+			sycl::atomic_ref<CountT, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{device_slice[local_tile_y][local_tile_x]};
 			ref++;
 		});
 	});
@@ -662,7 +665,8 @@ int main(int argc, char* argv[]) {
 				//     "Hello from interop task for device {}. Device counts: {}, rank counts: {}", device_idx, (void*)device_counts_ptr,
 				//     (void*)rank_counts_ptr);
 				auto stream = ih.get_native_queue<sycl::backend::cuda>();
-				const auto nccl_type = std::is_same_v<IndexT, uint32_t> ? ncclUint32 : ncclUint64;
+				static_assert(std::is_same_v<decltype(*device_counts_ptr), decltype(*rank_counts_ptr)>);
+				const auto nccl_type = std::is_same_v<CountT, uint32_t> ? ncclUint32 : ncclUint64;
 				// TODO: Can / should we register buffer with NCCL first?
 				NCCL_CHECK(ncclReduce(device_counts_ptr, rank_counts_ptr, local_grid_size.size(), nccl_type, ncclSum, 0, nccl_comms[device_idx], stream));
 			});
@@ -768,7 +772,7 @@ int main(int argc, char* argv[]) {
 			celerity::debug::set_task_name(cgh, "sum overlapping remote counts");
 			cgh.parallel_for(global_sum_geo, [=](celerity::id<3> id) {
 				const auto source_rank = read_rank_counts.experimental_get_allocation_offset()[0];
-				sycl::atomic_ref<IndexT, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{write_global_counts[id]};
+				sycl::atomic_ref<CountT, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{write_global_counts[id]};
 				ref += read_rank_counts[source_rank][id[1]][id[2]];
 			});
 		});
@@ -787,7 +791,7 @@ int main(int argc, char* argv[]) {
 			cgh.assert_no_data_movement(); // We already have the data where we need it from the previous task
 			cgh.parallel_for(lower_rank_sum_geo, [=](celerity::id<3> id) {
 				const auto source_rank = read_rank_counts.experimental_get_allocation_offset()[0];
-				sycl::atomic_ref<IndexT, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{write_lower_rank_sum[id]};
+				sycl::atomic_ref<CountT, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{write_lower_rank_sum[id]};
 				ref += read_rank_counts[source_rank][id[1]][id[2]];
 			});
 		});
@@ -807,7 +811,7 @@ int main(int argc, char* argv[]) {
 			celerity::debug::set_task_name(cgh, "prefix sum local counts");
 			cgh.assert_no_data_movement();
 			cgh.interop_task(geo, [=](celerity::interop_handle& ih, celerity::partition<3> part) {
-				thrust::device_ptr<IndexT> global_counts_ptr(ih.get_native_mem(read_global_counts));
+				thrust::device_ptr<CountT> global_counts_ptr(ih.get_native_mem(read_global_counts));
 				thrust::device_ptr<IndexT> cumulative_counts_ptr(ih.get_native_mem(write_cumulative_counts));
 				auto stream = ih.get_native_queue<sycl::backend::cuda>();
 				thrust::async::exclusive_scan(
@@ -1038,8 +1042,8 @@ int main(int argc, char* argv[]) {
 				auto device_slice = write_counts[0]; // 0 because we use local indexing
 				const auto local_tile_x = tile_x - local_grid_offset[1];
 				const auto local_tile_y = tile_y - local_grid_offset[0];
-				sycl::atomic_ref<IndexT, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{device_slice[local_tile_y][local_tile_x]};
-				const IndexT offset = ref.fetch_add(IndexT(1));
+				sycl::atomic_ref<CountT, sycl::memory_order::relaxed, sycl::memory_scope::device> ref{device_slice[local_tile_y][local_tile_x]};
+				const IndexT offset = ref.fetch_add(CountT(1));
 				write_tiles[read_write_offsets[0][local_tile_y][local_tile_x] + offset] = p;
 			});
 		});
@@ -1287,21 +1291,13 @@ int main(int argc, char* argv[]) {
 				};
 
 				const auto get_slot = [=](const celerity::id<2>& slot) {
-					// Roll own span until we can compile with C++20 (Clang 14 crashes if I try)
-					struct bootleg_span {
-						const umuguc_point3d* data;
-						size_t count;
-						const umuguc_point3d* begin() const { return data; }
-						const umuguc_point3d* end() const { return data + count; }
-					};
-
 					const auto slot_size = read_global_counts[rank][slot[0]][slot[1]];
 					if(slot_size == 0) {
 						// Empty tile
-						return bootleg_span{nullptr, 0};
+						return std::span<const umuguc_point3d>{};
 					}
 					const auto start = read_cumulative_counts[rank][slot[0]][slot[1]];
-					return bootleg_span{&read_tiles[start], slot_size};
+					return std::span{&read_tiles[start], slot_size};
 				};
 
 				const auto item =
