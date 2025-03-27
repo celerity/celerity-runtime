@@ -492,7 +492,7 @@ void executor_impl::retire_async_instruction(const instruction_id iid, async_ins
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 	if(async.oob_info != nullptr) {
-		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("executor::oob_check", Red, "I{} bounds check", iid);
+		CELERITY_DETAIL_TRACY_ZONE_SCOPED_V("executor::oob_check", executor_oob_check, "I{} bounds check", iid);
 		const auto& oob_info = *async.oob_info;
 		for(size_t i = 0; i < oob_info.accessors.size(); ++i) {
 			if(const auto oob_box = oob_info.illegal_access_bounding_boxes[i].into_box(); !oob_box.empty()) {

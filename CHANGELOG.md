@@ -39,6 +39,7 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - Host-initialized buffers will not read from user-provided memory after the last reference to the buffer has been dropped (#283)
+- Fix a build issue with (rare) configurations which enable both Tracy and OOB-checks (#331)
 
 ### Deprecated
 
