@@ -235,8 +235,7 @@ namespace celerity::test_utils_detail {
 
 const char* const expected_runtime_init_warnings_regex = "Celerity has detected that only .* logical cores are available to this process.*|"
                                                          "Celerity detected more than one node \\(MPI rank\\) on this host, which is not recommended.*|"
-                                                         "Instrumentation for profiling with Tracy is enabled\\. Performance may be negatively impacted\\.|"
-                                                         "\\[executor\\] no progress for .* seconds, potentially stuck.*";
+                                                         "Instrumentation for profiling with Tracy is enabled\\. Performance may be negatively impacted\\.|";
 
 const char* const expected_device_enumeration_warnings_regex = "Found fewer devices .* than local nodes .*, multiple nodes will use the same device.*";
 
@@ -246,6 +245,8 @@ const char* const expected_backend_fallback_warnings_regex =
 
 const char* const expected_dry_run_executor_warnings_regex = "Encountered a \"fence\" command while \"CELERITY_DRY_RUN_NODES\" is set. The result of this "
                                                              "operation will not match the expected output of an actual run.";
+
+const char* const expected_executor_progress_warnings_regex = "\\[executor\\] no progress for .* s, might be stuck.*";
 
 } // namespace celerity::test_utils_detail
 
@@ -281,6 +282,11 @@ runtime_fixture::runtime_fixture() {
 	allow_higher_level_log_messages(spdlog::level::warn, test_utils_detail::expected_runtime_init_warnings_regex);
 	allow_higher_level_log_messages(spdlog::level::warn, test_utils_detail::expected_device_enumeration_warnings_regex);
 	allow_higher_level_log_messages(spdlog::level::warn, test_utils_detail::expected_backend_fallback_warnings_regex);
+
+	// in debug builds, allow executor "stuck" warnings to avoid spurious test failures due to slow execution
+#if CELERITY_DETAIL_ENABLE_DEBUG
+	allow_higher_level_log_messages(spdlog::level::warn, test_utils_detail::expected_executor_progress_warnings_regex);
+#endif
 }
 
 runtime_fixture::~runtime_fixture() {
