@@ -5,23 +5,59 @@
 
 #include <celerity.h>
 
+constexpr uint32_t LOCAL_RANGE_X = 8;
+constexpr uint32_t LOCAL_RANGE_Y = 32;
+
 void setup_wave(celerity::queue& queue, celerity::buffer<float, 2> u, sycl::float2 center, float amplitude, sycl::float2 sigma) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor dw_u{u, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-		cgh.parallel_for<class setup_wave>(u.get_range(), [=, c = center, a = amplitude, s = sigma](celerity::item<2> item) {
-			const float dx = item[1] - c.x();
-			const float dy = item[0] - c.y();
-			dw_u[item] = a * sycl::exp(-(dx * dx / (2.f * s.x() * s.x()) + dy * dy / (2.f * s.y() * s.y())));
-		});
+		const auto range = u.get_range();
+		const celerity::range<2> local_range{LOCAL_RANGE_X, LOCAL_RANGE_Y};
+		const celerity::range<2> global_range{
+		    (range[0] + LOCAL_RANGE_X - 1) / LOCAL_RANGE_X * LOCAL_RANGE_X, (range[1] + LOCAL_RANGE_Y - 1) / LOCAL_RANGE_Y * LOCAL_RANGE_Y};
+		cgh.parallel_for<class setup_wave>(
+		    celerity::nd_range<2>(global_range, local_range), [=, c = center, a = amplitude, s = sigma](celerity::nd_item<2> item) {
+			    const auto id = item.get_global_id();
+			    if(id[0] < range[0] && id[1] < range[1]) {
+				    const float dx = id[1] - c.x();
+				    const float dy = id[0] - c.y();
+				    dw_u[id] = a * sycl::exp(-(dx * dx / (2.f * s.x() * s.x()) + dy * dy / (2.f * s.y() * s.y())));
+			    }
+		    });
 	});
 }
+
+// void setup_wave(celerity::queue& queue, celerity::buffer<float, 2> u, sycl::float2 center, float amplitude, sycl::float2 sigma) {
+// 	queue.submit([&](celerity::handler& cgh) {
+// 		celerity::accessor dw_u{u, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
+// 		cgh.parallel_for<class setup_wave>(u.get_range(), [=, c = center, a = amplitude, s = sigma](celerity::item<2> item) {
+// 			const float dx = item[1] - c.x();
+// 			const float dy = item[0] - c.y();
+// 			dw_u[item] = a * sycl::exp(-(dx * dx / (2.f * s.x() * s.x()) + dy * dy / (2.f * s.y() * s.y())));
+// 		});
+// 	});
+// }
 
 void zero(celerity::queue& queue, celerity::buffer<float, 2> buf) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor dw_buf{buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-		cgh.parallel_for<class zero>(buf.get_range(), [=](celerity::item<2> item) { dw_buf[item] = 0.f; });
+		const auto range = buf.get_range();
+		const celerity::range<2> local_range{LOCAL_RANGE_X, LOCAL_RANGE_Y};
+		const celerity::range<2> global_range{
+		    (range[0], range[1] + LOCAL_RANGE_Y - 1) / LOCAL_RANGE_Y * LOCAL_RANGE_Y, (range[1] + LOCAL_RANGE_Y - 1) / LOCAL_RANGE_Y * LOCAL_RANGE_Y};
+		cgh.parallel_for<class zero>(celerity::nd_range<2>(global_range, local_range), [=](celerity::nd_item<2> item) {
+			const auto id = item.get_global_id();
+			if(id[0] < range[0] && id[1] < range[1]) { dw_buf[id] = 0.f; }
+		});
 	});
 }
+
+// void zero(celerity::queue& queue, celerity::buffer<float, 2> buf) {
+// 	queue.submit([&](celerity::handler& cgh) {
+// 		celerity::accessor dw_buf{buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
+// 		cgh.parallel_for<class zero>(buf.get_range(), [=](celerity::item<2> item) { dw_buf[item] = 0.f; });
+// 	});
+// }
 
 struct init_config {
 	static constexpr float a = 0.5f;
@@ -40,20 +76,68 @@ void step(celerity::queue& queue, celerity::buffer<T, 2> up, celerity::buffer<T,
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor rw_up{up, cgh, celerity::access::one_to_one{}, celerity::read_write};
 		celerity::accessor r_u{u, cgh, celerity::access::neighborhood{{1, 1}, celerity::neighborhood_shape::along_axes}, celerity::read_only};
+		celerity::local_accessor<float, 2> lap{celerity::range<2>{LOCAL_RANGE_X + 2, LOCAL_RANGE_Y + 2}, cgh};
 
-		const auto size = up.get_range();
-		cgh.parallel_for<KernelName>(size, [=](celerity::item<2> item) {
-			const size_t py = item[0] < size[0] - 1 ? item[0] + 1 : item[0];
-			const size_t my = item[0] > 0 ? item[0] - 1 : item[0];
-			const size_t px = item[1] < size[1] - 1 ? item[1] + 1 : item[1];
-			const size_t mx = item[1] > 0 ? item[1] - 1 : item[1];
+		const auto range = up.get_range();
+		const celerity::range<2> local_range{LOCAL_RANGE_X, LOCAL_RANGE_Y};
+		const celerity::range<2> global_range{
+		    (range[0] + LOCAL_RANGE_X - 1) / LOCAL_RANGE_X * LOCAL_RANGE_X, (range[1] + LOCAL_RANGE_Y - 1) / LOCAL_RANGE_Y * LOCAL_RANGE_Y};
+		cgh.parallel_for<KernelName>(celerity::nd_range<2>(global_range, local_range), [=](celerity::nd_item<2> item) {
+			const auto id = item.get_global_id();
+			// celerity::group_barrier(item.get_group());
+			if(id[0] < range[0] && id[1] < range[1]) {
+				// Load the neighborhood into local memory
+				const size_t py = id[0] < range[0] - 1 ? id[0] + 1 : id[0];
+				const size_t my = id[0] > 0 ? id[0] - 1 : id[0];
+				const size_t px = id[1] < range[1] - 1 ? id[1] + 1 : id[1];
+				const size_t mx = id[1] > 0 ? id[1] - 1 : id[1];
 
-			const float lap = (dt / delta.y()) * (dt / delta.y()) * ((r_u[{py, item[1]}] - r_u[item]) - (r_u[item] - r_u[{my, item[1]}]))
-			                  + (dt / delta.x()) * (dt / delta.x()) * ((r_u[{item[0], px}] - r_u[item]) - (r_u[item] - r_u[{item[0], mx}]));
-			rw_up[item] = Config::a * 2 * r_u[item] - Config::b * rw_up[item] + Config::c * lap;
+				const size_t local_x = item.get_local_id()[0] + 1;
+				const size_t local_y = item.get_local_id()[1] + 1;
+				lap[local_x][local_y] = r_u[id];
+				lap[local_x + 1][local_y] = r_u[{py, id[1]}];
+				lap[local_x - 1][local_y] = r_u[{my, id[1]}];
+				lap[local_x][local_y + 1] = r_u[{id[0], px}];
+				lap[local_x][local_y - 1] = r_u[{id[0], mx}];
+			}
+
+			celerity::group_barrier(item.get_group());
+
+			if(id[0] < range[0] && id[1] < range[1]) {
+				const size_t local_x = item.get_local_id()[0] + 1;
+				const size_t local_y = item.get_local_id()[1] + 1;
+				// const float lap = (dt / delta.y()) * (dt / delta.y()) * ((r_u[{py, id[1]}] - r_u[id]) - (r_u[id] - r_u[{my, id[1]}]))
+				//                   + (dt / delta.x()) * (dt / delta.x()) * ((r_u[{id[0], px}] - r_u[id]) - (r_u[id] - r_u[{id[0], mx}]));
+
+				const float lap_num = (dt / delta.y()) * (dt / delta.y())
+				                          * ((lap[local_x + 1][local_y] - lap[local_x][local_y]) - (lap[local_x][local_y] - lap[local_x - 1][local_y]))
+				                      + (dt / delta.x()) * (dt / delta.x())
+				                            * ((lap[local_x][local_y + 1] - lap[local_x][local_y]) - (lap[local_x][local_y] - lap[local_x][local_y - 1]));
+				rw_up[id] = Config::a * 2 * r_u[id] - Config::b * rw_up[id] + Config::c * lap_num;
+			}
 		});
 	});
 }
+
+// template <typename T, typename Config, typename KernelName>
+// void step(celerity::queue& queue, celerity::buffer<T, 2> up, celerity::buffer<T, 2> u, float dt, sycl::float2 delta) {
+// 	queue.submit([&](celerity::handler& cgh) {
+// 		celerity::accessor rw_up{up, cgh, celerity::access::one_to_one{}, celerity::read_write};
+// 		celerity::accessor r_u{u, cgh, celerity::access::neighborhood{{1, 1}, celerity::neighborhood_shape::along_axes}, celerity::read_only};
+
+// 		const auto size = up.get_range();
+// 		cgh.parallel_for<KernelName>(size, [=](celerity::item<2> item) {
+// 			const size_t py = item[0] < size[0] - 1 ? item[0] + 1 : item[0];
+// 			const size_t my = item[0] > 0 ? item[0] - 1 : item[0];
+// 			const size_t px = item[1] < size[1] - 1 ? item[1] + 1 : item[1];
+// 			const size_t mx = item[1] > 0 ? item[1] - 1 : item[1];
+
+// 			const float lap = (dt / delta.y()) * (dt / delta.y()) * ((r_u[{py, item[1]}] - r_u[item]) - (r_u[item] - r_u[{my, item[1]}]))
+// 			                  + (dt / delta.x()) * (dt / delta.x()) * ((r_u[{item[0], px}] - r_u[item]) - (r_u[item] - r_u[{item[0], mx}]));
+// 			rw_up[item] = Config::a * 2 * r_u[item] - Config::b * rw_up[item] + Config::c * lap;
+// 		});
+// 	});
+// }
 
 void initialize(celerity::queue& queue, celerity::buffer<float, 2> up, celerity::buffer<float, 2> u, float dt, sycl::float2 delta) {
 	step<float, init_config, class initialize>(queue, up, u, dt, delta);

@@ -39,8 +39,7 @@ struct update_config {
 };
 
 template <typename T, typename Config, typename KernelName>
-void step(
-    celerity::queue& queue, celerity::buffer<T, 2, compression_type_a> up, celerity::buffer<T, 2, compression_type_a> u, float dt, sycl::float2 delta) {
+void step(celerity::queue& queue, celerity::buffer<T, 2, compression_type_a> up, celerity::buffer<T, 2, compression_type_a> u, float dt, sycl::float2 delta) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor rw_up{up, cgh, celerity::access::one_to_one{}, celerity::read_write};
 		celerity::accessor r_u{u, cgh, celerity::access::neighborhood{{1, 1}, celerity::neighborhood_shape::along_axes}, celerity::read_only};
@@ -59,13 +58,13 @@ void step(
 	});
 }
 
-void initialize(celerity::queue& queue, celerity::buffer<float, 2, compression_type_a> up, celerity::buffer<float, 2, compression_type_a> u, float dt,
-    sycl::float2 delta) {
+void initialize(
+    celerity::queue& queue, celerity::buffer<float, 2, compression_type_a> up, celerity::buffer<float, 2, compression_type_a> u, float dt, sycl::float2 delta) {
 	step<float, init_config, class initialize>(queue, up, u, dt, delta);
 }
 
-void update(celerity::queue& queue, celerity::buffer<float, 2, compression_type_a> up, celerity::buffer<float, 2, compression_type_a> u, float dt,
-    sycl::float2 delta) {
+void update(
+    celerity::queue& queue, celerity::buffer<float, 2, compression_type_a> up, celerity::buffer<float, 2, compression_type_a> u, float dt, sycl::float2 delta) {
 	step<float, update_config, class update>(queue, up, u, dt, delta);
 }
 
@@ -74,7 +73,9 @@ void stream_open(celerity::queue& queue, size_t N, size_t num_samples, celerity:
 		celerity::experimental::side_effect os_eff{os, cgh};
 		cgh.host_task(celerity::on_master_node, [=] {
 			os_eff->open("wave_sim_result.bin", std::ios_base::out | std::ios_base::binary);
-			const struct { uint64_t n, t; } header{N, num_samples};
+			const struct {
+				uint64_t n, t;
+			} header{N, num_samples};
 			os_eff->write(reinterpret_cast<const char*>(&header), sizeof(header));
 		});
 	});
@@ -153,7 +154,7 @@ int main(int argc, char* argv[]) {
 
 	celerity::buffer<float, 2, compression_type_a> u{celerity::range<2>(cfg.N, cfg.N), compression_type}; // current
 
-	setup_wave(queue, u, {cfg.N / 4.f, cfg.N / 4.f}, 1, {cfg.N / 8.f, cfg.N / 8.f});
+	setup_wave(queue, u, {cfg.N / 2.f, cfg.N / 2.f}, 1, {cfg.N / 2.f, cfg.N / 2.f});
 	zero(queue, up);
 	initialize(queue, up, u, cfg.dt, {cfg.dx, cfg.dy});
 
@@ -166,6 +167,7 @@ int main(int argc, char* argv[]) {
 	auto t = 0.0;
 	size_t i = 0;
 
+	queue.wait(celerity::experimental::barrier);
 	// time loop
 	std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 
@@ -179,9 +181,11 @@ int main(int argc, char* argv[]) {
 		t += cfg.dt;
 	}
 
+	queue.wait(celerity::experimental::barrier);
+
 	std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
 
-	std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << std::endl;
+	std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << " ms" << std::endl;
 
 	if(cfg.output_sample_rate > 0) { stream_close(queue, os); }
 

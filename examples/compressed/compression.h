@@ -34,6 +34,75 @@ struct vec_size<sycl::vec<T, N>> {
 	static constexpr int value = N;
 };
 
+namespace compression {
+	template <typename T, typename Q>
+	struct conversion {
+		using value_type = T;
+		using quant_type = Q;
+	};
+} // namespace compression
+
+template <typename T, typename Q>
+class compressed<celerity::compression::conversion<T, Q>> {
+	using quant_type = typename celerity::compression::conversion<T, Q>::quant_type;
+	using value_type = typename celerity::compression::conversion<T, Q>::value_type;
+
+	using vec_value_type = typename vec_element_type<value_type>::type;
+	using vec_quant_type = typename vec_element_type<quant_type>::type;
+
+  public:
+	compressed() : m_lower_bound(0), m_upper_bound(1) {}
+
+	template <typename ValueT>
+	compressed(ValueT lower_bound, ValueT upper_bound) : m_lower_bound(lower_bound), m_upper_bound(upper_bound) {
+		static_assert(std::is_same<ValueT, vec_value_type>(), "Value type isn't the same");
+		static_assert(is_vec<value_type>::value == is_vec<quant_type>::value, "Value and Quant type must be both either sycl::vec or fundamental");
+	}
+
+	vec_value_type get_upper_bound() const { return m_upper_bound; }
+	vec_value_type get_lower_bound() const { return m_lower_bound; }
+
+	void set_upper_bound(vec_value_type upper_bound) { m_upper_bound = upper_bound; }
+	void set_lower_bound(vec_value_type lower_bound) { m_lower_bound = lower_bound; }
+
+	quant_type compress(const value_type number) const {
+		if constexpr(is_vec<value_type>::value) {
+			quant_type result;
+			for(int i = 0; i < vec_size<quant_type>::value; ++i) {
+				result[i] = static_cast<vec_quant_type>(number[i]);
+			}
+
+			return result;
+		} else {
+			return static_cast<quant_type>(number);
+		}
+	}
+
+	value_type decompress(const quant_type number) const {
+		if constexpr(is_vec<value_type>::value) {
+			value_type result;
+
+			for(int i = 0; i < vec_size<value_type>::value; ++i) {
+				result[i] = static_cast<vec_value_type>(number[i]);
+			}
+
+			return result;
+		} else {
+			return static_cast<value_type>(number);
+		}
+	}
+
+	std::vector<quant_type> compress_data(const value_type* data, const size_t size) {
+		std::vector<quant_type> keep_alive(size);
+		std::transform(data, data + size, keep_alive.begin(), [&](const value_type& number) { return compress(number); });
+		return std::move(keep_alive);
+	}
+
+  private:
+	vec_value_type m_lower_bound;
+	vec_value_type m_upper_bound;
+};
+
 template <typename T, typename Q>
 class compressed<celerity::compression::quantization<T, Q>> {
 	using quant_type = typename celerity::compression::quantization<T, Q>::quant_type;
@@ -122,23 +191,23 @@ class compressed<celerity::compression::quantization<T, Q>> {
 	vec_value_type m_upper_bound;
 };
 
-template <typename T, typename Q>
+template <typename T, typename C, template <typename, typename> typename SelectedCompression>
 struct uncompressed_wrapper_const {
   public:
-	uncompressed_wrapper_const(const Q& compressed_ref, const compressed<compression::quantization<T, Q>>& compression)
+	uncompressed_wrapper_const(const C& compressed_ref, const compressed<SelectedCompression<T, C>>& compression)
 	    : m_compressed_ref(compressed_ref), m_compression(compression) {}
 
 	operator T() const { return m_compression.decompress(m_compressed_ref); }
 
   private:
-	const Q& m_compressed_ref;
-	const compressed<compression::quantization<T, Q>>& m_compression;
+	const C& m_compressed_ref;
+	const compressed<SelectedCompression<T, C>>& m_compression;
 };
 
-template <typename T, typename Q>
+template <typename T, typename C, template <typename, typename> typename SelectedCompression>
 struct uncompressed_wrapper {
   public:
-	uncompressed_wrapper(Q& compressed_ref, const compressed<compression::quantization<T, Q>>& compression)
+	uncompressed_wrapper(C& compressed_ref, const compressed<SelectedCompression<T, C>>& compression)
 	    : m_compressed_ref(compressed_ref), m_compression(compression) {}
 
 	uncompressed_wrapper& operator=(T value) {
@@ -147,20 +216,19 @@ struct uncompressed_wrapper {
 	}
 
 	operator T() const { return m_compression.decompress(m_compressed_ref); }
-	explicit operator Q() const { return m_compressed_ref; }
+	explicit operator C() const { return m_compressed_ref; }
 
   private:
-	Q& m_compressed_ref;
-	const compressed<compression::quantization<T, Q>>& m_compression;
+	C& m_compressed_ref;
+	const compressed<SelectedCompression<T, C>>& m_compression;
 };
 
 
-// buffer specialization compressed buffer initialization
-template <typename DataT, int Dims, typename Intype>
-class buffer<Intype, Dims, compressed<celerity::compression::quantization<Intype, DataT>>> : public buffer<DataT, Dims, compression::uncompressed> {
+template <typename DataT, int Dims, typename Intype, template <typename, typename> typename SelectedCompression>
+class buffer<Intype, Dims, compressed<SelectedCompression<Intype, DataT>>> : public buffer<DataT, Dims, compression::uncompressed> {
   public:
 	using base = buffer<DataT, Dims, compression::uncompressed>;
-	using compression = celerity::compression::quantization<Intype, DataT>;
+	using compression = SelectedCompression<Intype, DataT>;
 
 	buffer(const Intype* data, range<Dims> range, compressed<compression>& compression)
 	    : buffer(std::move(compression.compress_data(data, range.size())), range, compression) {}
@@ -169,20 +237,16 @@ class buffer<Intype, Dims, compressed<celerity::compression::quantization<Intype
 		assert(m_compression.get_lower_bound() != m_compression.get_upper_bound() && "Lower bound is equal to upper bound");
 	}
 
-	// move constructor
 	buffer(buffer&& other) noexcept : base(std::move(other)), m_compression(other.m_compression) {}
 
-	// copy constructor
 	buffer(const buffer& other) : base(other), m_compression(other.m_compression) {}
 
-	// move assignment
 	buffer& operator=(buffer&& other) noexcept {
 		base::operator=(std::move(other));
 		m_compression = other.m_compression;
 		return *this;
 	}
 
-	// copy assignment
 	buffer& operator=(const buffer& other) {
 		base::operator=(other);
 		m_compression = other.m_compression;
@@ -197,19 +261,20 @@ class buffer<Intype, Dims, compressed<celerity::compression::quantization<Intype
 
 	std::vector<DataT> m_data;
 
-	compressed<celerity::compression::quantization<Intype, DataT>> m_compression;
+	compressed<SelectedCompression<Intype, DataT>> m_compression;
 };
 
 
-template <typename DataT, int Dims, typename Intype, access_mode Mode, target Target>
-class accessor<DataT, Dims, Mode, Target, compressed<celerity::compression::quantization<Intype, DataT>>>
+template <typename DataT, int Dims, typename Intype, access_mode Mode, target Target, template <typename, typename> typename SelectedCompression>
+class accessor<DataT, Dims, Mode, Target, compressed<SelectedCompression<Intype, DataT>>>
     : public accessor<DataT, Dims, Mode, Target, compression::uncompressed> {
   public:
 	using base = accessor<DataT, Dims, Mode, Target, compression::uncompressed>;
-	using compression = celerity::compression::quantization<Intype, DataT>;
-	using quant_type = typename compression::quant_type;
+	using compression = SelectedCompression<Intype, DataT>;
+	using compressed_type = typename compression::quant_type;
 	using value_type = typename compression::value_type;
-	using retval = std::conditional_t<detail::is_producer_mode(Mode), uncompressed_wrapper<Intype, DataT>, const uncompressed_wrapper_const<Intype, DataT>>;
+	using retval = std::conditional_t<detail::is_producer_mode(Mode), uncompressed_wrapper<Intype, DataT, SelectedCompression>,
+	    const uncompressed_wrapper_const<Intype, DataT, SelectedCompression>>;
 
 	template <typename T, int D, typename Functor, access_mode ModeNoInit>
 	accessor(buffer<T, D, compressed<compression>>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag)
@@ -242,7 +307,7 @@ class accessor<DataT, Dims, Mode, Target, compressed<celerity::compression::quan
 
 		std::vector<value_type> uncompressed_data(new_range.size());
 		std::transform(
-		    new_buff, new_buff + new_range.size(), uncompressed_data.begin(), [&](const quant_type& number) { return m_compression.decompress(number); });
+		    new_buff, new_buff + new_range.size(), uncompressed_data.begin(), [&](const compressed_type& number) { return m_compression.decompress(number); });
 
 		return std::move(uncompressed_data);
 	}
