@@ -1,28 +1,47 @@
-#include <array>
-#include <cmath>
+#include <cstdint>
 #include <fstream>
+#include <iostream>
 #include <vector>
 
-#include "compression.h"
 #include <celerity.h>
+
+#include "compression.h"
+
+constexpr uint32_t LOCAL_RANGE_X = 8;
+constexpr uint32_t LOCAL_RANGE_Y = 32;
 
 using compression_type_a = celerity::compressed<celerity::compression::quantization<float, uint16_t>>;
 
 void setup_wave(celerity::queue& queue, celerity::buffer<float, 2, compression_type_a> u, sycl::float2 center, float amplitude, sycl::float2 sigma) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor dw_u{u, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-		cgh.parallel_for<class setup_wave>(u.get_range(), [=, c = center, a = amplitude, s = sigma](celerity::item<2> item) {
-			const float dx = item[1] - c.x();
-			const float dy = item[0] - c.y();
-			dw_u[item] = a * sycl::exp(-(dx * dx / (2.f * s.x() * s.x()) + dy * dy / (2.f * s.y() * s.y())));
-		});
+		const auto range = u.get_range();
+		const celerity::range<2> local_range{LOCAL_RANGE_X, LOCAL_RANGE_Y};
+		const celerity::range<2> global_range{
+		    (range[0] + LOCAL_RANGE_X - 1) / LOCAL_RANGE_X * LOCAL_RANGE_X, (range[1] + LOCAL_RANGE_Y - 1) / LOCAL_RANGE_Y * LOCAL_RANGE_Y};
+		cgh.parallel_for<class setup_wave>(
+		    celerity::nd_range<2>(global_range, local_range), [=, c = center, a = amplitude, s = sigma](celerity::nd_item<2> item) {
+			    const auto id = item.get_global_id();
+			    if(id[0] < range[0] && id[1] < range[1]) {
+				    const float dx = id[1] - c.x();
+				    const float dy = id[0] - c.y();
+				    dw_u[id] = a * sycl::exp(-(dx * dx / (2.f * s.x() * s.x()) + dy * dy / (2.f * s.y() * s.y())));
+			    }
+		    });
 	});
 }
 
 void zero(celerity::queue& queue, celerity::buffer<float, 2, compression_type_a> buf) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor dw_buf{buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-		cgh.parallel_for<class zero>(buf.get_range(), [=](celerity::item<2> item) { dw_buf[item] = 0.f; });
+		const auto range = buf.get_range();
+		const celerity::range<2> local_range{LOCAL_RANGE_X, LOCAL_RANGE_Y};
+		const celerity::range<2> global_range{
+		    (range[0], range[1] + LOCAL_RANGE_Y - 1) / LOCAL_RANGE_Y * LOCAL_RANGE_Y, (range[1] + LOCAL_RANGE_Y - 1) / LOCAL_RANGE_Y * LOCAL_RANGE_Y};
+		cgh.parallel_for<class zero>(celerity::nd_range<2>(global_range, local_range), [=](celerity::nd_item<2> item) {
+			const auto id = item.get_global_id();
+			if(id[0] < range[0] && id[1] < range[1]) { dw_buf[id] = 0.f; }
+		});
 	});
 }
 
@@ -43,17 +62,43 @@ void step(celerity::queue& queue, celerity::buffer<T, 2, compression_type_a> up,
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::accessor rw_up{up, cgh, celerity::access::one_to_one{}, celerity::read_write};
 		celerity::accessor r_u{u, cgh, celerity::access::neighborhood{{1, 1}, celerity::neighborhood_shape::along_axes}, celerity::read_only};
+		celerity::local_accessor<float, 2> lap{celerity::range<2>{LOCAL_RANGE_X + 2, LOCAL_RANGE_Y + 2}, cgh};
 
-		const auto size = up.get_range();
-		cgh.parallel_for<KernelName>(size, [=](celerity::item<2> item) {
-			const size_t py = item[0] < size[0] - 1 ? item[0] + 1 : item[0];
-			const size_t my = item[0] > 0 ? item[0] - 1 : item[0];
-			const size_t px = item[1] < size[1] - 1 ? item[1] + 1 : item[1];
-			const size_t mx = item[1] > 0 ? item[1] - 1 : item[1];
+		const auto range = up.get_range();
+		const celerity::range<2> local_range{LOCAL_RANGE_X, LOCAL_RANGE_Y};
+		const celerity::range<2> global_range{
+		    (range[0] + LOCAL_RANGE_X - 1) / LOCAL_RANGE_X * LOCAL_RANGE_X, (range[1] + LOCAL_RANGE_Y - 1) / LOCAL_RANGE_Y * LOCAL_RANGE_Y};
+		cgh.parallel_for<KernelName>(celerity::nd_range<2>(global_range, local_range), [=](celerity::nd_item<2> item) {
+			const auto id = item.get_global_id();
+			// celerity::group_barrier(item.get_group());
+			if(id[0] < range[0] && id[1] < range[1]) {
+				// Load the neighborhood into local memory
+				const size_t py = id[0] < range[0] - 1 ? id[0] + 1 : id[0];
+				const size_t my = id[0] > 0 ? id[0] - 1 : id[0];
+				const size_t px = id[1] < range[1] - 1 ? id[1] + 1 : id[1];
+				const size_t mx = id[1] > 0 ? id[1] - 1 : id[1];
 
-			const float lap = (dt / delta.y()) * (dt / delta.y()) * ((r_u[{py, item[1]}] - r_u[item]) - (r_u[item] - r_u[{my, item[1]}]))
-			                  + (dt / delta.x()) * (dt / delta.x()) * ((r_u[{item[0], px}] - r_u[item]) - (r_u[item] - r_u[{item[0], mx}]));
-			rw_up[item] = Config::a * 2 * r_u[item] - Config::b * rw_up[item] + Config::c * lap;
+				const size_t local_x = item.get_local_id()[0] + 1;
+				const size_t local_y = item.get_local_id()[1] + 1;
+				lap[local_x][local_y] = r_u[id];
+				lap[local_x + 1][local_y] = r_u[{py, id[1]}];
+				lap[local_x - 1][local_y] = r_u[{my, id[1]}];
+				lap[local_x][local_y + 1] = r_u[{id[0], px}];
+				lap[local_x][local_y - 1] = r_u[{id[0], mx}];
+			}
+
+			celerity::group_barrier(item.get_group());
+
+			if(id[0] < range[0] && id[1] < range[1]) {
+				const size_t local_x = item.get_local_id()[0] + 1;
+				const size_t local_y = item.get_local_id()[1] + 1;
+
+				const float lap_num = (dt / delta.y()) * (dt / delta.y())
+				                          * ((lap[local_x + 1][local_y] - lap[local_x][local_y]) - (lap[local_x][local_y] - lap[local_x - 1][local_y]))
+				                      + (dt / delta.x()) * (dt / delta.x())
+				                            * ((lap[local_x][local_y + 1] - lap[local_x][local_y]) - (lap[local_x][local_y] - lap[local_x][local_y - 1]));
+				rw_up[id] = Config::a * 2 * r_u[id] - Config::b * rw_up[id] + Config::c * lap_num;
+			}
 		});
 	});
 }
@@ -71,6 +116,7 @@ void update(
 void stream_open(celerity::queue& queue, size_t N, size_t num_samples, celerity::experimental::host_object<std::ofstream> os) {
 	queue.submit([&](celerity::handler& cgh) {
 		celerity::experimental::side_effect os_eff{os, cgh};
+		// Using `on_master_node` on all host tasks instead of `once` guarantees that all execute on the same cluster node and access the same file handle
 		cgh.host_task(celerity::on_master_node, [=] {
 			os_eff->open("wave_sim_result.bin", std::ios_base::out | std::ios_base::binary);
 			const struct {
@@ -103,8 +149,8 @@ struct wave_sim_config {
 	int N = 512;   // Grid size
 	float T = 100; // Time at end of simulation
 	float dt = 0.25f;
-	float dx = 1.0f;
-	float dy = 1.0f;
+	float dx = 1.f;
+	float dy = 1.f;
 
 	// "Sample" a frame every X iterations
 	// (0 = don't produce any output)
@@ -151,10 +197,9 @@ int main(int argc, char* argv[]) {
 	compression_type_a compression_type(1.0f, -0.5f);
 
 	celerity::buffer<float, 2, compression_type_a> up{celerity::range<2>(cfg.N, cfg.N), compression_type}; // next
+	celerity::buffer<float, 2, compression_type_a> u{celerity::range<2>(cfg.N, cfg.N), compression_type};  // current
 
-	celerity::buffer<float, 2, compression_type_a> u{celerity::range<2>(cfg.N, cfg.N), compression_type}; // current
-
-	setup_wave(queue, u, {cfg.N / 4.f, cfg.N / 4.f}, 1, {cfg.N / 8.f, cfg.N / 8.f});
+	setup_wave(queue, u, {cfg.N / 2.f, cfg.N / 2.f}, 1, {cfg.N / 2.f, cfg.N / 2.f});
 	zero(queue, up);
 	initialize(queue, up, u, cfg.dt, {cfg.dx, cfg.dy});
 
@@ -173,7 +218,6 @@ int main(int argc, char* argv[]) {
 
 	while(t < cfg.T) {
 		update(queue, up, u, cfg.dt, {cfg.dx, cfg.dy});
-
 		if(cfg.output_sample_rate > 0) {
 			if(++i % cfg.output_sample_rate == 0) { stream_append(queue, u, os); }
 		}

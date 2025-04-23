@@ -29,6 +29,7 @@ add_example(wave_sim)
 add_example(reduction)
 add_example(nd_range_wave_sim)
 add_example(compressed)
+add_example(compressed_nd_range)
 add_example(compressed_actually)
 add_example(compression_local_wave_sim)
 

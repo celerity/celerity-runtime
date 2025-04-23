@@ -7,7 +7,7 @@
 
 #include "compression.h"
 
-constexpr uint32_t LOCAL_RANGE_X = 4;
+constexpr uint32_t LOCAL_RANGE_X = 2;
 constexpr uint32_t LOCAL_RANGE_Y = 64;
 
 using compression_type_a = celerity::compressed<celerity::compression::quantization<float, uint16_t>>;
@@ -193,7 +193,7 @@ int main(int argc, char* argv[]) {
 	celerity::buffer<float, 2, compression_type_a> u{celerity::range<2>(cfg.N, cfg.N), compression_type}; // current
 	celerity::debug::set_buffer_name(u, "u");
 
-	setup_wave(queue, u, {cfg.N / 2.f, cfg.N / 2.f}, 1, {cfg.N / 2.f, cfg.N / 2.f});
+	setup_wave(queue, u, {cfg.N / 4.f, cfg.N / 4.f}, 1, {cfg.N / 8.f, cfg.N / 8.f});
 	zero(queue, up);
 	initialize(queue, up, u, cfg.dt, {cfg.dx, cfg.dy});
 

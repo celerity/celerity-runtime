@@ -55,7 +55,10 @@ class compressed<celerity::compression::quantization<T, Q>> {
 	compressed() : m_lower_bound(0), m_upper_bound(1) {}
 
 	template <typename ValueT>
-	compressed(ValueT lower_bound, ValueT upper_bound) : m_lower_bound(lower_bound), m_upper_bound(upper_bound) {
+	compressed(ValueT lower_bound, ValueT upper_bound)
+	    : m_lower_bound(lower_bound), m_upper_bound(upper_bound),
+	      m_decompression_factor(1 / static_cast<value_type>(std::numeric_limits<quant_type>::max()) * (m_upper_bound - m_lower_bound)),
+	      m_compression_factor((1 / (m_upper_bound - m_lower_bound)) * std::numeric_limits<quant_type>::max()) {
 		static_assert(std::is_same<ValueT, vec_value_type>(), "Value type isn't the same");
 		static_assert(is_vec<value_type>::value == is_vec<quant_type>::value, "Value and Quant type must be both either sycl::vec or fundamental");
 	}
@@ -71,12 +74,12 @@ class compressed<celerity::compression::quantization<T, Q>> {
 			quant_type result;
 			for(int i = 0; i < vec_size<quant_type>::value; ++i) {
 				result[i] = static_cast<vec_quant_type>(
-				    std::round((number[i] - m_lower_bound) / (m_upper_bound - m_lower_bound) * std::numeric_limits<vec_quant_type>::max()));
+				    ((number[i] - m_lower_bound) / (m_upper_bound - m_lower_bound) * std::numeric_limits<vec_quant_type>::max()) + 0.5f);
 			}
 
 			return result;
 		} else {
-			return static_cast<quant_type>(std::round((number - m_lower_bound) / (m_upper_bound - m_lower_bound) * std::numeric_limits<quant_type>::max()));
+			return static_cast<quant_type>(((number - m_lower_bound) * m_compression_factor) + 0.5f);
 		}
 	}
 
@@ -92,8 +95,7 @@ class compressed<celerity::compression::quantization<T, Q>> {
 
 			return result;
 		} else {
-			return static_cast<value_type>(number) / static_cast<value_type>(std::numeric_limits<quant_type>::max()) * (m_upper_bound - m_lower_bound)
-			       + m_lower_bound;
+			return static_cast<value_type>(number) * m_decompression_factor + m_lower_bound;
 		}
 	}
 
@@ -121,36 +123,77 @@ class compressed<celerity::compression::quantization<T, Q>> {
 		celerity::id<2> local_id = {item.get_local_id(0) + 1, item.get_local_id(1) + 1};
 		celerity::range<2> local_range = {item.get_local_range(1) + 2, item.get_local_range(1) + 2};
 		auto global_id = item.get_global_id();
+		auto idx = celerity::detail::get_linear_index(local_range, local_id);
 
 		if(neighborhood) {
 			auto global_range = item.get_global_range();
 
+			// if(item.get_local_id(0) == item.get_local_range(0) - 1) {
+			// 	size_t py = global_id[0] < global_range[0] - 1 ? global_id[0] + 1 : global_id[0];
+			// 	local_tile_point_acc[celerity::detail::get_linear_index(local_range, {local_id[0] + 1, local_id[1]})] =
+			// 	    decompress(tile_point_acc_last_dim[{py, global_id[1]}]);
+			// }
+
+			// if(item.get_local_id(0) == 0) {
+			// 	size_t my = global_id[0] > 0 ? global_id[0] - 1 : global_id[0];
+			// 	local_tile_point_acc[celerity::detail::get_linear_index(local_range, {local_id[0] - 1, local_id[1]})] =
+			// 	    decompress(tile_point_acc_last_dim[{my, global_id[1]}]);
+			// }
+
+			// if(item.get_local_id(1) == item.get_local_range(1) - 1) {
+			// 	size_t px = global_id[1] < global_range[1] - 1 ? global_id[1] + 1 : global_id[1];
+			// 	local_tile_point_acc[celerity::detail::get_linear_index(local_range, {local_id[0], local_id[1] + 1})] =
+			// 	    decompress(tile_point_acc_last_dim[{global_id[0], px}]);
+			// }
+
+			// if(item.get_local_id(1) == 0) {
+			// 	size_t mx = global_id[1] > 0 ? global_id[1] - 1 : global_id[1];
+			// 	local_tile_point_acc[celerity::detail::get_linear_index(local_range, {local_id[0], local_id[1] - 1})] =
+			// 	    decompress(tile_point_acc_last_dim[{global_id[0], mx}]);
+			// }
+
 			if(item.get_local_id(0) == item.get_local_range(0) - 1) {
 				size_t py = global_id[0] < global_range[0] - 1 ? global_id[0] + 1 : global_id[0];
-				local_tile_point_acc[celerity::detail::get_linear_index(local_range, {local_id[0] + 1, local_id[1]})] =
-				    decompress(tile_point_acc_last_dim[{py, global_id[1]}]);
+				local_tile_point_acc[idx + local_range[0]] = decompress(tile_point_acc_last_dim[{py, global_id[1]}]);
 			}
 
 			if(item.get_local_id(0) == 0) {
 				size_t my = global_id[0] > 0 ? global_id[0] - 1 : global_id[0];
-				local_tile_point_acc[celerity::detail::get_linear_index(local_range, {local_id[0] - 1, local_id[1]})] =
-				    decompress(tile_point_acc_last_dim[{my, global_id[1]}]);
+				local_tile_point_acc[idx - local_range[0]] = decompress(tile_point_acc_last_dim[{my, global_id[1]}]);
 			}
 
 			if(item.get_local_id(1) == item.get_local_range(1) - 1) {
 				size_t px = global_id[1] < global_range[1] - 1 ? global_id[1] + 1 : global_id[1];
-				local_tile_point_acc[celerity::detail::get_linear_index(local_range, {local_id[0], local_id[1] + 1})] =
-				    decompress(tile_point_acc_last_dim[{global_id[0], px}]);
+				local_tile_point_acc[idx + 1] = decompress(tile_point_acc_last_dim[{global_id[0], px}]);
 			}
 
 			if(item.get_local_id(1) == 0) {
 				size_t mx = global_id[1] > 0 ? global_id[1] - 1 : global_id[1];
-				local_tile_point_acc[celerity::detail::get_linear_index(local_range, {local_id[0], local_id[1] - 1})] =
-				    decompress(tile_point_acc_last_dim[{global_id[0], mx}]);
+				local_tile_point_acc[idx - 1] = decompress(tile_point_acc_last_dim[{global_id[0], mx}]);
 			}
+
+			// if(item.get_local_id(0) == item.get_local_range(0) - 1 && global_id[0] < global_range[0] - 1) {
+			// 	size_t py = global_id[0] + 1;
+			// 	local_tile_point_acc[idx + local_range[0]] = decompress(tile_point_acc_last_dim[{py, global_id[1]}]);
+			// }
+
+			// if(item.get_local_id(0) == 0 && global_id[0] > 0) {
+			// 	size_t my = global_id[0] - 1;
+			// 	local_tile_point_acc[idx - local_range[0]] = decompress(tile_point_acc_last_dim[{my, global_id[1]}]);
+			// }
+
+			// if(item.get_local_id(1) == item.get_local_range(1) - 1 && global_id[1] < global_range[1] - 1) {
+			// 	size_t px = global_id[1] + 1;
+			// 	local_tile_point_acc[idx + 1] = decompress(tile_point_acc_last_dim[{global_id[0], px}]);
+			// }
+
+			// if(item.get_local_id(1) == 0 && global_id[1] > 0) {
+			// 	size_t mx = global_id[1] - 1;
+			// 	local_tile_point_acc[idx - 1] = decompress(tile_point_acc_last_dim[{global_id[0], mx}]);
+			// }
 		}
 
-		local_tile_point_acc[celerity::detail::get_linear_index(local_range, local_id)] = decompress(tile_point_acc_last_dim[global_id]);
+		local_tile_point_acc[idx] = decompress(tile_point_acc_last_dim[global_id]);
 	}
 
 
@@ -176,6 +219,8 @@ class compressed<celerity::compression::quantization<T, Q>> {
   private:
 	vec_value_type m_lower_bound;
 	vec_value_type m_upper_bound;
+	vec_value_type m_decompression_factor;
+	vec_value_type m_compression_factor;
 };
 
 template <int TargetDims, typename Target, int SubscriptDim = 0>
@@ -355,7 +400,7 @@ class accessor<DataT, Dims, Mode, target::device, compressed<celerity::compressi
 	compressed<compression> m_compression;
 	allocator<local_accessor<Intype, 1>, Intype> m_all;
 
-	static constexpr int LOCAL_MEMORY_SIZE = 400;
+	static constexpr int LOCAL_MEMORY_SIZE = 264;
 };
 
 template <typename DataT, int Dims, typename Intype, access_mode Mode>

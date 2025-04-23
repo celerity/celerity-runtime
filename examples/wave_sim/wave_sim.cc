@@ -146,7 +146,7 @@ int main(int argc, char* argv[]) {
 	celerity::buffer<float, 2> up{celerity::range<2>(cfg.N, cfg.N)}; // next
 	celerity::buffer<float, 2> u{celerity::range<2>(cfg.N, cfg.N)};  // current
 
-	setup_wave(queue, u, {cfg.N / 2.f, cfg.N / 2.f}, 1, {cfg.N / 2.f, cfg.N / 2.f});
+	setup_wave(queue, u, {cfg.N / 4.f, cfg.N / 4.f}, 1, {cfg.N / 8.f, cfg.N / 8.f});
 	zero(queue, up);
 	initialize(queue, up, u, cfg.dt, {cfg.dx, cfg.dy});
 
