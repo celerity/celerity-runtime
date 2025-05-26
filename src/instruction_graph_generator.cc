@@ -1504,12 +1504,11 @@ std::vector<localized_chunk> generator_impl::split_task_execution_range(const ex
 	    tsk.has_variable_split() && tsk.get_side_effect_map().empty() && tsk.get_collective_group_id() == non_collective_group_id;
 	const auto split = tsk.get_hint<experimental::hints::split_2d>() != nullptr ? split_2d : split_1d;
 
-	const auto command_sr = ecmd.get_execution_range();
-	const auto command_chunk = chunk<3>(command_sr.offset, command_sr.range, tsk.get_global_size());
+	const auto command_chunk = box<3>(ecmd.get_execution_range());
 
 	// As a heuristic to keep inter-device communication to a minimum, we split the execution range twice when oversubscription is active: Once to obtain
 	// contiguous chunks per device, and one more (below) to subdivide the ranges on each device (which can help with computation-communication overlap).
-	std::vector<chunk<3>> coarse_chunks;
+	std::vector<box<3>> coarse_chunks;
 	if(is_splittable_locally && tsk.get_execution_target() == execution_target::device) {
 		coarse_chunks = split(command_chunk, tsk.get_granularity(), m_system.devices.size());
 	} else {
@@ -1539,7 +1538,7 @@ std::vector<localized_chunk> generator_impl::split_task_execution_range(const ex
 	for(size_t coarse_idx = 0; coarse_idx < coarse_chunks.size(); ++coarse_idx) {
 		for(const auto& fine_chunk : split(coarse_chunks[coarse_idx], tsk.get_granularity(), oversubscribe_factor)) {
 			auto& localized_chunk = concurrent_chunks.emplace_back();
-			localized_chunk.execution_range = box(subrange(fine_chunk.offset, fine_chunk.range));
+			localized_chunk.execution_range = fine_chunk;
 			if(tsk.get_execution_target() == execution_target::device) {
 				assert(coarse_idx < m_system.devices.size());
 				localized_chunk.memory_id = m_system.devices[coarse_idx].native_memory;

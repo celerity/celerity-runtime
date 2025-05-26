@@ -117,11 +117,9 @@ std::vector<const command*> command_graph_generator::build_task(const task& tsk)
 }
 
 void command_graph_generator::report_overlapping_writes(const task& tsk, const box_vector<3>& local_chunks) const {
-	const chunk<3> full_chunk{tsk.get_global_offset(), tsk.get_global_size(), tsk.get_global_size()};
-
 	// Since this check is run distributed on every node, we avoid quadratic behavior by only checking for conflicts between all local chunks and the
 	// region-union of remote chunks. This way, every conflict will be reported by at least one node.
-	const box<3> global_chunk(subrange(full_chunk.offset, full_chunk.range));
+	const box<3> global_chunk(subrange(tsk.get_global_offset(), tsk.get_global_size()));
 	auto remote_chunks = region_difference(global_chunk, region(box_vector<3>(local_chunks))).into_boxes();
 
 	// detect_overlapping_writes takes a single box_vector, so we concatenate local and global chunks (the order does not matter)
@@ -140,13 +138,15 @@ void command_graph_generator::report_overlapping_writes(const task& tsk, const b
 }
 
 std::vector<command_graph_generator::assigned_chunk> command_graph_generator::split_task_and_assign_chunks(const task& tsk) const {
-	const chunk<3> full_chunk{tsk.get_global_offset(), tsk.get_global_size(), tsk.get_global_size()};
+	const box<3> full_chunk{subrange<3>(tsk.get_global_offset(), tsk.get_global_size())};
 	const size_t num_chunks = m_num_nodes * m_test_chunk_multiplier;
 	const auto chunks = ([&] {
 		if(tsk.get_type() == task_type::collective || tsk.get_type() == task_type::fence) {
-			std::vector<chunk<3>> chunks;
+			std::vector<box<3>> chunks;
 			for(size_t nid = 0; nid < m_num_nodes; ++nid) {
-				chunks.push_back(chunk_cast<3>(chunk<1>{id<1>{tsk.get_type() == task_type::collective ? nid : 0}, ones, {m_num_nodes}}));
+				const id<1> min = tsk.get_type() == task_type::collective ? nid : 0;
+				const id<1> max = min + 1;
+				chunks.push_back(box_cast<3>(box<1>{min, max}));
 			}
 			return chunks;
 		}
@@ -157,7 +157,7 @@ std::vector<command_graph_generator::assigned_chunk> command_graph_generator::sp
 			if(tsk.get_hint<experimental::hints::split_2d>() != nullptr) { return split_2d(full_chunk, tsk.get_granularity(), num_chunks); }
 			return split_1d(full_chunk, tsk.get_granularity(), num_chunks);
 		}
-		return std::vector<chunk<3>>{full_chunk};
+		return std::vector<box<3>>{full_chunk};
 	})();
 	assert(chunks.size() <= num_chunks); // We may have created less than requested
 	assert(!chunks.empty());
@@ -171,7 +171,7 @@ std::vector<command_graph_generator::assigned_chunk> command_graph_generator::sp
 	std::vector<assigned_chunk> assigned_chunks;
 	for(size_t i = 0; i < chunks.size(); ++i) {
 		const node_id nid = (i / chunks_per_node) % m_num_nodes;
-		assigned_chunks.push_back({nid, chunks[i]});
+		assigned_chunks.push_back({nid, chunk<3>(chunks[i].get_min(), chunks[i].get_range(), tsk.get_global_size())});
 	}
 	return assigned_chunks;
 }
