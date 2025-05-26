@@ -87,94 +87,94 @@ std::array<size_t, 2> assign_split_factors_2d(const box<3>& full_chunk, const ra
 
 namespace celerity::detail {
 
-std::vector<box<3>> split_1d(const box<3>& full_chunk, const range<3>& granularity, const size_t num_chunks) {
+std::vector<box<3>> split_1d(const box<3>& full_box, const range<3>& granularity, const size_t num_boxs) {
 #ifndef NDEBUG
-	assert(num_chunks > 0);
+	assert(num_boxs > 0);
 	for(int d = 0; d < 3; ++d) {
 		assert(granularity[d] > 0);
-		assert(full_chunk.get_range()[d] % granularity[d] == 0);
+		assert(full_box.get_range()[d] % granularity[d] == 0);
 	}
 #endif
 
 	// Due to split granularity requirements or if num_workers > global_size[0],
-	// we may not be able to create the requested number of chunks.
-	const std::array<size_t, 1> actual_num_chunks = {std::min(num_chunks, full_chunk.get_range()[0] / granularity[0])};
-	const auto [small_chunk_size, large_chunk_size, num_large_chunks] = compute_small_and_large_chunks<1>(full_chunk, granularity, actual_num_chunks);
+	// we may not be able to create the requested number of boxs.
+	const std::array<size_t, 1> actual_num_boxs = {std::min(num_boxs, full_box.get_range()[0] / granularity[0])};
+	const auto [small_chunk_size, large_chunk_size, num_large_chunks] = compute_small_and_large_chunks<1>(full_box, granularity, actual_num_boxs);
 
 	std::vector<box<3>> result;
-	result.reserve(actual_num_chunks[0]);
+	result.reserve(actual_num_boxs[0]);
 	for(auto i = 0u; i < num_large_chunks[0]; ++i) {
-		id<3> min = full_chunk.get_min();
-		id<3> max = full_chunk.get_max();
+		id<3> min = full_box.get_min();
+		id<3> max = full_box.get_max();
 		min[0] += i * large_chunk_size[0];
 		max[0] = min[0] + large_chunk_size[0];
 		result.emplace_back(min, max);
 	}
-	for(auto i = num_large_chunks[0]; i < actual_num_chunks[0]; ++i) {
-		id<3> min = full_chunk.get_min();
-		id<3> max = full_chunk.get_max();
+	for(auto i = num_large_chunks[0]; i < actual_num_boxs[0]; ++i) {
+		id<3> min = full_box.get_min();
+		id<3> max = full_box.get_max();
 		min[0] += num_large_chunks[0] * large_chunk_size[0] + (i - num_large_chunks[0]) * small_chunk_size[0];
 		max[0] = min[0] + small_chunk_size[0];
 		result.emplace_back(min, max);
 	}
 
 #ifndef NDEBUG
-	sanity_check_split(full_chunk, result);
+	sanity_check_split(full_box, result);
 #endif
 
 	return result;
 }
 
 // TODO: Make the split dimensions configurable for 3D chunks?
-std::vector<box<3>> split_2d(const box<3>& full_chunk, const range<3>& granularity, const size_t num_chunks) {
+std::vector<box<3>> split_2d(const box<3>& full_box, const range<3>& granularity, const size_t num_boxs) {
 #ifndef NDEBUG
-	assert(num_chunks > 0);
+	assert(num_boxs > 0);
 	for(int d = 0; d < 3; ++d) {
 		assert(granularity[d] > 0);
-		assert(full_chunk.get_range()[d] % granularity[d] == 0);
+		assert(full_box.get_range()[d] % granularity[d] == 0);
 	}
 #endif
 
-	// Factorize num_chunks
-	// We start out with an initial guess of `factor = floor(sqrt(num_chunks))` (the other one is implicitly given by `num_chunks / factor`),
+	// Factorize num_boxs
+	// We start out with an initial guess of `factor = floor(sqrt(num_boxs))` (the other one is implicitly given by `num_boxs / factor`),
 	// and work our way down, keeping track of the best factorization we've found so far, until we find a factorization that produces
-	// the requested number of chunks, or until we reach (1, num_chunks), i.e., a 1D split.
-	size_t factor = std::floor(std::sqrt(num_chunks));
+	// the requested number of chunks, or until we reach (1, num_boxs), i.e., a 1D split.
+	size_t factor = std::floor(std::sqrt(num_boxs));
 	std::array<size_t, 2> best_chunk_counts = {0, 0};
 	while(factor >= 1) {
-		while(factor > 1 && num_chunks % factor != 0) {
+		while(factor > 1 && num_boxs % factor != 0) {
 			factor--;
 		}
-		// The returned counts are at most (factor, num_chunks / factor), however may be less if constrained by the split granularity.
-		const auto chunk_counts = assign_split_factors_2d(full_chunk, granularity, factor, num_chunks);
+		// The returned counts are at most (factor, num_boxs / factor), however may be less if constrained by the split granularity.
+		const auto chunk_counts = assign_split_factors_2d(full_box, granularity, factor, num_boxs);
 		if(chunk_counts[0] * chunk_counts[1] > best_chunk_counts[0] * best_chunk_counts[1]) { best_chunk_counts = chunk_counts; }
-		if(chunk_counts[0] * chunk_counts[1] == num_chunks) { break; }
+		if(chunk_counts[0] * chunk_counts[1] == num_boxs) { break; }
 		factor--;
 	}
 	const auto actual_num_chunks = best_chunk_counts;
-	const auto [small_chunk_size, large_chunk_size, num_large_chunks] = compute_small_and_large_chunks<2>(full_chunk, granularity, actual_num_chunks);
+	const auto [small_chunk_size, large_chunk_size, num_large_chunks] = compute_small_and_large_chunks<2>(full_box, granularity, actual_num_chunks);
 
 	std::vector<box<3>> result;
 	result.reserve(actual_num_chunks[0] * actual_num_chunks[1]);
-	id<3> offset = full_chunk.get_min();
+	id<3> offset = full_box.get_min();
 
 	for(size_t j = 0; j < actual_num_chunks[0]; ++j) {
 		range<2> chunk_size = {(j < num_large_chunks[0]) ? large_chunk_size[0] : small_chunk_size[0], 0};
 		for(size_t i = 0; i < actual_num_chunks[1]; ++i) {
 			chunk_size[1] = (i < num_large_chunks[1]) ? large_chunk_size[1] : small_chunk_size[1];
 			const id<3> min = offset;
-			id<3> max = full_chunk.get_max();
+			id<3> max = full_box.get_max();
 			max[0] = min[0] + chunk_size[0];
 			max[1] = min[1] + chunk_size[1];
 			result.emplace_back(min, max);
 			offset[1] += chunk_size[1];
 		}
 		offset[0] += chunk_size[0];
-		offset[1] = full_chunk.get_min()[1];
+		offset[1] = full_box.get_min()[1];
 	}
 
 #ifndef NDEBUG
-	sanity_check_split(full_chunk, result);
+	sanity_check_split(full_box, result);
 #endif
 
 	return result;
