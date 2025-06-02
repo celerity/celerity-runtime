@@ -171,17 +171,16 @@ std::vector<command_graph_generator::assigned_chunk> command_graph_generator::sp
 	std::vector<assigned_chunk> assigned_chunks;
 	for(size_t i = 0; i < chunks.size(); ++i) {
 		const node_id nid = (i / chunks_per_node) % m_num_nodes;
-		assigned_chunks.push_back({nid, chunk<3>(chunks[i].get_min(), chunks[i].get_range(), tsk.get_global_size())});
+		assigned_chunks.push_back({nid, chunks[i]});
 	}
 	return assigned_chunks;
 }
 
-command_graph_generator::buffer_requirements_list command_graph_generator::get_buffer_requirements_for_mapped_access(
-    const task& tsk, const subrange<3>& sr) const {
+command_graph_generator::buffer_requirements_list command_graph_generator::get_buffer_requirements_for_mapped_access(const task& tsk, const box<3>& box) const {
 	buffer_requirements_list result;
 	const auto& access_map = tsk.get_buffer_access_map();
 	for(const buffer_id bid : access_map.get_accessed_buffers()) {
-		result.push_back(buffer_requirements{bid, access_map.compute_consumed_region(bid, box<3>(sr)), access_map.compute_produced_region(bid, box<3>(sr))});
+		result.push_back(buffer_requirements{bid, access_map.compute_consumed_region(bid, box), access_map.compute_produced_region(bid, box)});
 	}
 	return result;
 }
@@ -283,7 +282,7 @@ void command_graph_generator::resolve_pending_reductions(
 		// as oversubscription is handled by the instruction graph).
 		// NOTE: The participating_nodes.count() check below relies on this being true
 		assert(chunks_with_requirements.local_chunks.size() <= 1);
-		for(const auto& [a_chunk, requirements] : chunks_with_requirements.local_chunks) {
+		for(const auto& [_, requirements] : chunks_with_requirements.local_chunks) {
 			if(std::none_of(requirements.begin(), requirements.end(), [&](const buffer_requirements& br) { return br.bid == bid && !br.consumed.empty(); })) {
 				// This chunk doesn't read from the buffer
 				continue;
@@ -390,7 +389,7 @@ void command_graph_generator::generate_pushes(batch& current_batch, const task& 
 
 // TODO: We currently generate an await push command for each local chunk, whereas we only generate a single push command for all remote chunks
 void command_graph_generator::generate_await_pushes(batch& current_batch, const task& tsk, const assigned_chunks_with_requirements& chunks_with_requirements) {
-	for(auto& [a_chunk, requirements] : chunks_with_requirements.local_chunks) {
+	for(auto& [_, requirements] : chunks_with_requirements.local_chunks) {
 		for(auto& [bid, consumed, _] : requirements) {
 			if(consumed.empty()) continue;
 			auto& buffer = m_buffers.at(bid);
@@ -462,7 +461,7 @@ void command_graph_generator::generate_distributed_commands(batch& current_batch
 	if(m_policy.overlapping_write_error != error_policy::ignore) {
 		box_vector<3> local_chunks;
 		for(const auto& [a_chunk, _] : chunks_with_requirements.local_chunks) {
-			local_chunks.push_back(box<3>{a_chunk.chnk});
+			local_chunks.push_back(a_chunk.chnk);
 		}
 		report_overlapping_writes(tsk, local_chunks);
 	}
@@ -488,7 +487,7 @@ void command_graph_generator::generate_distributed_commands(batch& current_batch
 			// we have to include it in exactly one of the per-node intermediate reductions.
 			const bool is_reduction_initializer = std::any_of(tsk.get_reductions().begin(), tsk.get_reductions().end(),
 			    [&](const auto& reduction) { return m_local_nid == reduction_initializer_nid && reduction.init_from_buffer; });
-			cmd = create_command<execution_command>(current_batch, &tsk, subrange{a_chunk.chnk}, is_reduction_initializer,
+			cmd = create_command<execution_command>(current_batch, &tsk, a_chunk.chnk.get_subrange(), is_reduction_initializer,
 			    [&](const auto& record_debug_info) { record_debug_info(tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }); });
 		}
 
@@ -539,8 +538,7 @@ void command_graph_generator::generate_distributed_commands(batch& current_batch
 				if(const auto uninitialized_reads = region_difference(consumed, buffer.initialized_region); !uninitialized_reads.empty()) {
 					utils::report_error(m_policy.uninitialized_read_error,
 					    "Command C{} on N{}, which executes {} of {}, reads {} {}, which has not been written by any node.", cmd->get_id(), m_local_nid,
-					    box(subrange(a_chunk.chnk.offset, a_chunk.chnk.range)), print_task_debug_label(tsk), print_buffer_debug_label(bid),
-					    uninitialized_reads);
+					    a_chunk.chnk, print_task_debug_label(tsk), print_buffer_debug_label(bid), uninitialized_reads);
 				}
 			}
 		}
