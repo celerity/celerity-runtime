@@ -273,6 +273,8 @@ class region_builder {
 		m_boxes.push_back(box);
 	}
 
+	// Adds a set of boxes to the region builder, skipping empty boxes,
+	// by calling `add` for each element instead of a single `insert(end)`.
 	void add(const box_vector<Dims>& boxes) & {
 		m_boxes.reserve(m_boxes.size() + boxes.size());
 		for(const auto& b : boxes) {

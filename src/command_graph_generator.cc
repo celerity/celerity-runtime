@@ -402,7 +402,6 @@ void command_graph_generator::generate_await_pushes(batch& current_batch, const 
 				if(!box.empty() && !wcs.is_fresh()) { missing_parts_boxes.push_back(box); }
 			}
 
-			// There is data we don't yet have locally. Generate an await push command for it.
 			if(!missing_parts_boxes.empty()) {
 				assert(m_num_nodes > 1);
 				auto& required_boxes = per_buffer_required_boxes[bid]; // allow default-insert
@@ -411,6 +410,7 @@ void command_graph_generator::generate_await_pushes(batch& current_batch, const 
 		}
 	}
 
+	// There is data we don't yet have locally. Generate an await push command for it.
 	for(auto& [bid, boxes] : per_buffer_required_boxes) {
 		auto& buffer = m_buffers.at(bid);
 		auto region = std::move(boxes).into_region(); // moved-from after next line!
