@@ -161,11 +161,11 @@ namespace detail {
 	template <typename Builder, int Dims, typename Functor>
 	auto dispatch_get_access(Builder&& builder, test_utils::mock_buffer<Dims>& mb, access_mode mode, Functor rmfn) {
 		switch(mode) {
-		case access_mode::read: return builder.read(mb, rmfn); break;
-		case access_mode::write: return builder.write(mb, rmfn); break;
-		case access_mode::read_write: return builder.read_write(mb, rmfn); break;
-		case access_mode::discard_write: return builder.discard_write(mb, rmfn); break;
-		case access_mode::discard_read_write: return builder.discard_read_write(mb, rmfn); break;
+		case access_mode::read: return std::forward<Builder>(builder.read(mb, rmfn)); break;
+		case access_mode::write: return std::forward<Builder>(builder.write(mb, rmfn)); break;
+		case access_mode::read_write: return std::forward<Builder>(builder.read_write(mb, rmfn)); break;
+		case access_mode::discard_write: return std::forward<Builder>(builder.discard_write(mb, rmfn)); break;
+		case access_mode::discard_read_write: return std::forward<Builder>(builder.discard_read_write(mb, rmfn)); break;
 		default: utils::unreachable(); // LCOV_EXCL_LINE
 		}
 	}
@@ -387,7 +387,7 @@ namespace detail {
 			CHECK(region_map_a.get_region_values(make_region(32, 96)).front().second == test_utils::get_task(tctx.get_task_graph(), tid_4));
 		}
 
-		const auto tid_8 = tctx.master_node_host_task().read_write(buf_b, fixed<1>({0, 128})).submit();
+		[[maybe_unused]] const auto tid_8 = tctx.master_node_host_task().read_write(buf_b, fixed<1>({0, 128})).submit();
 
 		CHECK(test_utils::get_num_live_horizons(tctx.get_task_graph()) == 2);
 

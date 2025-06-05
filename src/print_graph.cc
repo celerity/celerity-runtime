@@ -143,7 +143,7 @@ std::string print_task_graph(const task_recorder& recorder, const std::string& t
 	CELERITY_DEBUG("print_task_graph, {} entries", recorder.get_graph_nodes().size());
 
 	for(const auto& tsk : recorder.get_graph_nodes()) {
-		const char* shape = tsk->type == task_type::epoch || tsk->type == task_type::horizon ? "ellipse" : "box style=rounded";
+		const char* const shape = tsk->type == task_type::epoch || tsk->type == task_type::horizon ? "ellipse" : "box style=rounded";
 		fmt::format_to(std::back_inserter(dot), "{}[shape={} label=<{}>];", tsk->id, shape, get_task_label(*tsk));
 	}
 
