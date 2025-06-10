@@ -1062,7 +1062,7 @@ namespace detail {
 					std::this_thread::sleep_for(std::chrono::milliseconds(100));
 				});
 			});
-			std::this_thread::sleep_for(std::chrono::milliseconds(25)); // we print a warning when starvation time > 10%
+			std::this_thread::sleep_for(std::chrono::milliseconds(35)); // we print a warning when starvation time > 20%
 			experimental::flush(q);
 		}
 
