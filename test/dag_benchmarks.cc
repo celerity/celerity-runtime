@@ -100,108 +100,163 @@ static constexpr instruction_graph_generator::policy_set benchmark_instruction_g
     /* overlapping_write_error */ CELERITY_ACCESS_PATTERN_DIAGNOSTICS ? error_policy::panic : error_policy::ignore,
 };
 
-struct task_manager_benchmark_context {
-	const size_t num_nodes = 1;
-	task_graph tdag;
-	task_recorder trec;
-	task_manager tm{1, tdag, test_utils::g_print_graphs ? &trec : nullptr, nullptr /* delegate */, benchmark_task_manager_policy};
-	test_utils::mock_buffer_factory mbf{tm};
-
-	task_manager_benchmark_context() { tm.generate_epoch_task(epoch_action::init); }
-
-	task_manager_benchmark_context(const task_manager_benchmark_context&) = delete;
-	task_manager_benchmark_context(task_manager_benchmark_context&&) = delete;
-	task_manager_benchmark_context& operator=(const task_manager_benchmark_context&) = delete;
-	task_manager_benchmark_context& operator=(task_manager_benchmark_context&&) = delete;
-
-	~task_manager_benchmark_context() { tm.generate_epoch_task(celerity::detail::epoch_action::shutdown); }
+struct dag_benchmark_context {
+	dag_benchmark_context() = default;
+	virtual ~dag_benchmark_context() = 0;
+	CELERITY_DETAIL_UTILS_NON_COPYABLE(dag_benchmark_context);
+	CELERITY_DETAIL_UTILS_NON_MOVABLE(dag_benchmark_context);
 
 	template <int KernelDims, typename CGF>
 	void create_task(range<KernelDims> global_range, CGF cgf) {
-		tm.generate_command_group_task(invoke_command_group_function([=](handler& cgh) {
+		m_command_groups.push_back(invoke_command_group_function([=](handler& cgh) {
 			cgf(cgh);
-			cgh.host_task(global_range, [](partition<KernelDims>) {});
+			cgh.parallel_for(global_range, [](item<KernelDims>) {});
 		}));
 	}
+
+  protected:
+	std::vector<raw_command_group> m_command_groups;
 };
 
+dag_benchmark_context::~dag_benchmark_context() = default;
 
-struct command_graph_generator_benchmark_context : private task_manager::delegate { // NOLINT(cppcoreguidelines-virtual-class-destructor)
+struct tdag_benchmark_context : dag_benchmark_context, private task_manager::delegate {
 	const size_t num_nodes;
 	task_graph tdag;
 	task_recorder trec;
-	task_manager tm{num_nodes, tdag, test_utils::g_print_graphs ? &trec : nullptr, this, benchmark_task_manager_policy};
+	task_manager tm{num_nodes, tdag, test_utils::g_print_graphs ? &trec : nullptr, static_cast<task_manager::delegate*>(this), benchmark_task_manager_policy};
+	test_utils::mock_buffer_factory mbf{tm};
+
+	explicit tdag_benchmark_context(const size_t num_nodes = 1) : num_nodes(num_nodes) {}
+
+	void task_created(const task* tsk) override { m_tasks.push_back(tsk); }
+
+	// is called before the initialization of benchmark tasks
+	void initialize() { tm.generate_epoch_task(celerity::detail::epoch_action::init); }
+
+	// is called after the initialization of benchmark tasks
+	void prepare() { m_tasks.reserve(m_command_groups.size()); }
+
+	// executes everything that is actually benchmarked (measured)
+	void execute() { create_all_tasks(); }
+
+	// finalizes the benchmark context, e.g. generates shutdown epoch, and clears the command groups
+	void finalize() {
+		tm.generate_epoch_task(celerity::detail::epoch_action::shutdown);
+		m_command_groups.clear();
+	}
+
+  protected:
+	std::vector<const task*> m_tasks; // for use in derived classes
+
+	void create_all_tasks() {
+		for(auto& cg : m_command_groups) {
+			tm.generate_command_group_task(std::move(cg));
+		}
+	}
+};
+
+struct cdag_benchmark_context : tdag_benchmark_context {
 	command_graph cdag;
 	command_recorder crec;
 	command_graph_generator cggen{num_nodes, 0 /* local_nid */, cdag, test_utils::g_print_graphs ? &crec : nullptr, benchmark_command_graph_generator_policy};
 	test_utils::mock_buffer_factory mbf{tm, cggen};
 
-	explicit command_graph_generator_benchmark_context(const size_t num_nodes) : num_nodes(num_nodes) { tm.generate_epoch_task(epoch_action::init); }
+	explicit cdag_benchmark_context(const size_t num_nodes) : tdag_benchmark_context(num_nodes) {}
 
-	void task_created(const task* tsk) override { cggen.build_task(*tsk); }
+	void initialize() {
+		tdag_benchmark_context::initialize();
+		create_all_commands(); // used to initialize the m_command_batches even if empty
+		m_tasks.clear();
+	}
 
-	command_graph_generator_benchmark_context(const command_graph_generator_benchmark_context&) = delete;
-	command_graph_generator_benchmark_context(command_graph_generator_benchmark_context&&) = delete;
-	command_graph_generator_benchmark_context& operator=(const command_graph_generator_benchmark_context&) = delete;
-	command_graph_generator_benchmark_context& operator=(command_graph_generator_benchmark_context&&) = delete;
+	void prepare() {
+		create_all_tasks();
+		m_command_batches.reserve(m_tasks.size());
+	}
 
-	~command_graph_generator_benchmark_context() { tm.generate_epoch_task(celerity::detail::epoch_action::shutdown); }
+	void execute() { create_all_commands(); }
 
-	template <int KernelDims, typename CGF>
-	void create_task(range<KernelDims> global_range, CGF cgf) {
-		// note: This ignores communication overhead with the scheduler thread
-		tm.generate_command_group_task(invoke_command_group_function([=](handler& cgh) {
-			cgf(cgh);
-			cgh.parallel_for(global_range, [](item<KernelDims>) {});
-		}));
+	void finalize() {
+		m_tasks.clear();
+		tdag_benchmark_context::finalize();
+		create_all_commands();
+	}
+
+  protected:
+	std::vector<std::vector<const command*>> m_command_batches; // for use in derived classes
+
+	void create_all_commands() {
+		for(const auto* tsk : m_tasks) {
+			m_command_batches.push_back(cggen.build_task(*tsk));
+		}
 	}
 };
 
-struct instruction_graph_generator_benchmark_context final : private task_manager::delegate {
-	const size_t num_nodes;
+struct idag_benchmark_context : cdag_benchmark_context {
 	const size_t num_devices;
 	const bool supports_d2d_copies;
-	task_graph tdag;
-	task_recorder trec;
-	task_manager tm{num_nodes, tdag, test_utils::g_print_graphs ? &trec : nullptr, this, benchmark_task_manager_policy};
-	command_graph cdag;
-	command_recorder crec;
-	command_graph_generator cggen{num_nodes, 0 /* local_nid */, cdag, test_utils::g_print_graphs ? &crec : nullptr, benchmark_command_graph_generator_policy};
 	instruction_recorder irec;
 	instruction_graph idag;
 	instruction_graph_generator iggen{num_nodes, 0 /* local nid */, test_utils::make_system_info(num_devices, supports_d2d_copies), idag,
 	    nullptr /* delegate */, test_utils::g_print_graphs ? &irec : nullptr, benchmark_instruction_graph_generator_policy};
 	test_utils::mock_buffer_factory mbf{tm, cggen, iggen};
 
-	explicit instruction_graph_generator_benchmark_context(const size_t num_nodes, const size_t num_devices, const bool supports_d2d_copies = true)
-	    : num_nodes(num_nodes), num_devices(num_devices), supports_d2d_copies(supports_d2d_copies) {
-		tm.generate_epoch_task(epoch_action::init);
+	explicit idag_benchmark_context(const size_t num_nodes, const size_t num_devices, const bool supports_d2d_copies = true)
+	    : cdag_benchmark_context(num_nodes), num_devices(num_devices), supports_d2d_copies(supports_d2d_copies) {}
+
+	void initialize() {
+		cdag_benchmark_context::initialize();
+		create_all_instructions(); // used to initialize the m_command_batches even if empty
+		m_command_batches.clear();
 	}
 
-	void task_created(const task* tsk) override {
-		for(const auto cmd : cggen.build_task(*tsk)) {
-			iggen.compile(*cmd);
+	void prepare() {
+		create_all_tasks();
+		create_all_commands();
+	}
+
+	void execute() { create_all_instructions(); }
+
+	void finalize() {
+		m_command_batches.clear();
+		cdag_benchmark_context::finalize();
+		create_all_instructions();
+	}
+
+  protected:
+	void create_all_instructions() {
+		for(const auto& batch : m_command_batches) {
+			for(const auto* cmd : batch) {
+				iggen.compile(*cmd);
+			}
 		}
-	}
-
-	instruction_graph_generator_benchmark_context(const instruction_graph_generator_benchmark_context&) = delete;
-	instruction_graph_generator_benchmark_context(instruction_graph_generator_benchmark_context&&) = delete;
-	instruction_graph_generator_benchmark_context& operator=(const instruction_graph_generator_benchmark_context&) = delete;
-	instruction_graph_generator_benchmark_context& operator=(instruction_graph_generator_benchmark_context&&) = delete;
-
-	~instruction_graph_generator_benchmark_context() { tm.generate_epoch_task(celerity::detail::epoch_action::shutdown); }
-
-	template <int KernelDims, typename CGF>
-	void create_task(range<KernelDims> global_range, CGF cgf) {
-		// note: This ignores communication overhead with the scheduler thread
-		tm.generate_command_group_task(invoke_command_group_function([=](handler& cgh) {
-			cgf(cgh);
-			cgh.host_task(global_range, [](partition<KernelDims>) {});
-		}));
 	}
 };
 
-// Keeps an OS thread around between benchmark iterations to avoid measuring thread creation overhead
+/// Like idag_benchmark_context, but measures construction of all three graphs
+struct all_dags_benchmark_context : idag_benchmark_context {
+	all_dags_benchmark_context(const size_t num_nodes, const size_t num_devices, const bool supports_d2d_copies = true)
+	    : idag_benchmark_context(num_nodes, num_devices, supports_d2d_copies) {}
+
+	void initialize() {
+		tdag_benchmark_context::initialize();
+		create_all_commands();
+		create_all_instructions();
+		m_tasks.clear();
+		m_command_batches.clear();
+	}
+
+	void prepare() { /* no-op */ }
+
+	void execute() {
+		create_all_tasks();
+		create_all_commands();
+		create_all_instructions();
+	}
+};
+
+// Keeps an OS thread around between benchmark iterations to avoid creating thousands of threads
 class restartable_scheduler_thread {
 	struct empty {};
 	struct shutdown {};
@@ -264,86 +319,45 @@ class restartable_scheduler_thread {
 	}
 };
 
-struct scheduler_benchmark_context : private task_manager::delegate { // NOLINT(cppcoreguidelines-virtual-class-destructor)
-	const size_t num_nodes;
-	task_graph tdag;
-	task_manager tm{num_nodes, tdag, nullptr, this, benchmark_task_manager_policy};
+struct scheduler_benchmark_context : tdag_benchmark_context {
 	restartable_scheduler_thread* thread;
 	scheduler schdlr;
 	test_utils::mock_buffer_factory mbf;
 
 	explicit scheduler_benchmark_context(restartable_scheduler_thread& thrd, const size_t num_nodes, const size_t num_devices_per_node)
-	    : num_nodes(num_nodes), thread(&thrd), //
+	    : tdag_benchmark_context(num_nodes), thread(&thrd), //
 	      schdlr(scheduler_testspy::make_threadless_scheduler(num_nodes, 0 /* local_nid */,
 	          test_utils::make_system_info(num_devices_per_node, true /* supports d2d copies */), nullptr /* delegate */, nullptr /* crec */,
 	          nullptr /* irec */)),
-	      mbf(tm, schdlr) //
-	{
+	      mbf(tm, schdlr) {}
+
+	void task_created(const task* tsk) override { schdlr.notify_task_created(tsk); }
+
+	void execute() {
 		thread->start([this] { scheduler_testspy::run_scheduling_loop(schdlr); });
-		tm.generate_epoch_task(epoch_action::init);
-	}
-
-	scheduler_benchmark_context(const scheduler_benchmark_context&) = delete;
-	scheduler_benchmark_context(scheduler_benchmark_context&&) = delete;
-	scheduler_benchmark_context& operator=(const scheduler_benchmark_context&) = delete;
-	scheduler_benchmark_context& operator=(scheduler_benchmark_context&&) = delete;
-
-	~scheduler_benchmark_context() {
+		create_all_tasks();
 		const auto tid = tm.generate_epoch_task(celerity::detail::epoch_action::shutdown);
 		// There is no executor thread and notifications are processed in-order, so we can immediately notify the scheduler about shutdown-epoch completion
 		schdlr.notify_epoch_reached(tid);
 		thread->join();
 	}
 
-	template <int KernelDims, typename CGF>
-	void create_task(range<KernelDims> global_range, CGF cgf) {
-		tm.generate_command_group_task(invoke_command_group_function([=](handler& cgh) {
-			cgf(cgh);
-			cgh.host_task(global_range, [](partition<KernelDims>) {});
-		}));
-	}
-
-	void task_created(const task* tsk) override { schdlr.notify_task_created(tsk); }
+	void finalize() { /* no-op */ }
 };
-
-template <typename BaseBenchmarkContext>
-struct submission_throttle_benchmark_context final : public BaseBenchmarkContext {
-	const std::chrono::steady_clock::duration delay_per_submission;
-	std::chrono::steady_clock::time_point last_submission{};
-
-	template <typename... BaseCtorParams>
-	explicit submission_throttle_benchmark_context(std::chrono::steady_clock::duration delay_per_submission, BaseCtorParams&&... args)
-	    : BaseBenchmarkContext{std::forward<BaseCtorParams>(args)...}, delay_per_submission{delay_per_submission} {}
-
-	template <int KernelDims, typename CGF>
-	void create_task(range<KernelDims> global_range, CGF cgf) {
-		// "busy sleep" because system timer resolution is not high enough to get down to 10 us intervals
-		while(std::chrono::steady_clock::now() - last_submission < delay_per_submission)
-			;
-
-		BaseBenchmarkContext::create_task(global_range, cgf);
-		last_submission = std::chrono::steady_clock::now();
-	}
-};
-
-
-// The generate_* methods are [[noinline]] to make them visible in a profiler.
 
 // Artificial: large set of disconnected tasks, does not generate horizons
 template <typename BenchmarkContext>
-[[gnu::noinline]] BenchmarkContext&& generate_soup_graph(BenchmarkContext&& ctx, const size_t num_tasks) {
+void generate_soup_graph(BenchmarkContext& ctx, const size_t num_tasks) {
 	test_utils::mock_buffer<2> buf = ctx.mbf.create_buffer(range<2>{ctx.num_nodes, num_tasks}, true /* host_initialized */);
 	for(size_t t = 0; t < num_tasks; ++t) {
 		ctx.create_task(range<1>{ctx.num_nodes},
 		    [&](handler& cgh) { buf.get_access<access_mode::read_write>(cgh, [=](chunk<1> ck) { return subrange<2>{{ck.offset[0], t}, {ck.range[0], 1}}; }); });
 	}
-
-	return std::forward<BenchmarkContext>(ctx);
 }
 
 // Artificial: Linear chain of dependent tasks, with all-to-all communication
 template <typename BenchmarkContext>
-[[gnu::noinline]] BenchmarkContext&& generate_chain_graph(BenchmarkContext&& ctx, const size_t num_tasks) {
+void generate_chain_graph(BenchmarkContext& ctx, const size_t num_tasks) {
 	const range<2> global_range{ctx.num_nodes, ctx.num_nodes};
 	test_utils::mock_buffer<2> buf = ctx.mbf.create_buffer(global_range, true /* host initialized */);
 	for(size_t t = 0; t < num_tasks; ++t) {
@@ -352,15 +366,13 @@ template <typename BenchmarkContext>
 			buf.get_access<access_mode::write>(cgh, celerity::access::one_to_one{});
 		});
 	}
-
-	return std::forward<BenchmarkContext>(ctx);
 }
 
 // Artificial: Generate expanding or contracting tree of tasks, with gather/scatter communication
 enum class tree_topology { expanding, contracting };
 
 template <tree_topology Topology, typename BenchmarkContext>
-[[gnu::noinline]] BenchmarkContext&& generate_tree_graph(BenchmarkContext&& ctx, const size_t target_num_tasks) {
+void generate_tree_graph(BenchmarkContext& ctx, const size_t target_num_tasks) {
 	const size_t tree_breadth = static_cast<int>(pow(2, ceil(log2(target_num_tasks + 1)) - 1));
 	test_utils::mock_buffer<2> buf = ctx.mbf.create_buffer(range<2>{ctx.num_nodes, tree_breadth}, true /* host initialized */);
 
@@ -373,13 +385,11 @@ template <tree_topology Topology, typename BenchmarkContext>
 			});
 		}
 	}
-
-	return std::forward<BenchmarkContext>(ctx);
 }
 
 // graphs identical to the wave_sim example
 template <typename BenchmarkContext>
-[[gnu::noinline]] BenchmarkContext&& generate_wave_sim_graph(BenchmarkContext&& ctx, const float T) {
+void generate_wave_sim_graph(BenchmarkContext& ctx, const float T) {
 	constexpr int N = 512;
 	constexpr float dt = 0.25f;
 
@@ -408,13 +418,11 @@ template <typename BenchmarkContext>
 		std::swap(u, up);
 		t += dt;
 	}
-
-	return std::forward<BenchmarkContext>(ctx);
 }
 
 // Graph of a simple iterative Jacobi solver
 template <typename BenchmarkContext>
-[[gnu::noinline]] BenchmarkContext&& generate_jacobi_graph(BenchmarkContext&& ctx, const int steps) {
+void generate_jacobi_graph(BenchmarkContext& ctx, const int steps) {
 	constexpr int N = 1024;
 
 	// Naming scheme from https://en.wikipedia.org/wiki/Jacobi_method#Python_example
@@ -439,42 +447,65 @@ template <typename BenchmarkContext>
 		});
 		std::swap(x, x_new);
 	}
-
-	return std::forward<BenchmarkContext>(ctx);
 }
 
-template <typename BenchmarkContextFactory>
-void run_benchmarks(BenchmarkContextFactory&& make_ctx) {
-	BENCHMARK("soup topology") { generate_soup_graph(make_ctx(), 100); };
-	BENCHMARK("chain topology") { generate_chain_graph(make_ctx(), 30); };
-	BENCHMARK("expanding tree topology") { generate_tree_graph<tree_topology::expanding>(make_ctx(), 30); };
-	BENCHMARK("contracting tree topology") { generate_tree_graph<tree_topology::contracting>(make_ctx(), 30); };
-	BENCHMARK("wave_sim topology") { generate_wave_sim_graph(make_ctx(), 50); };
-	BENCHMARK("jacobi topology") { generate_jacobi_graph(make_ctx(), 50); };
+template <typename BenchmarkContext, typename... ContextArgs>
+void run_benchmarks(ContextArgs&&... args) {
+	const auto run = [&](Catch::Benchmark::Chronometer& meter, const auto& cb) {
+		std::vector<std::unique_ptr<BenchmarkContext>> contexts; // unique_ptr because contexts are non-movable
+		for(int i = 0; i < meter.runs(); ++i) {
+			contexts.emplace_back(std::make_unique<BenchmarkContext>(std::forward<ContextArgs>(args)...));
+			contexts.back()->initialize();
+			cb(*contexts.back());
+			contexts.back()->prepare();
+		}
+		meter.measure([&](const int i) { contexts[i]->execute(); });
+		for(auto& ctx : contexts) {
+			ctx->finalize();
+		}
+	};
+	BENCHMARK_ADVANCED("soup topology")(Catch::Benchmark::Chronometer meter) {
+		run(meter, [](auto& ctx) { generate_soup_graph(ctx, 100); });
+	};
+	BENCHMARK_ADVANCED("chain topology")(Catch::Benchmark::Chronometer meter) {
+		run(meter, [](auto& ctx) { generate_chain_graph(ctx, 30); });
+	};
+	BENCHMARK_ADVANCED("expanding tree topology")(Catch::Benchmark::Chronometer meter) {
+		run(meter, [](auto& ctx) { generate_tree_graph<tree_topology::expanding>(ctx, 30); });
+	};
+	BENCHMARK_ADVANCED("contracting tree topology")(Catch::Benchmark::Chronometer meter) {
+		run(meter, [](auto& ctx) { generate_tree_graph<tree_topology::contracting>(ctx, 30); });
+	};
+	BENCHMARK_ADVANCED("wave_sim topology")(Catch::Benchmark::Chronometer meter) {
+		run(meter, [](auto& ctx) { generate_wave_sim_graph(ctx, 50); });
+	};
+	BENCHMARK_ADVANCED("jacobi topology")(Catch::Benchmark::Chronometer meter) {
+		run(meter, [](auto& ctx) { generate_jacobi_graph(ctx, 50); });
+	};
 }
 
 TEST_CASE("generating large task graphs", "[benchmark][group:task-graph]") {
 	test_utils::benchmark_thread_pinner pinner;
-	run_benchmarks([] { return task_manager_benchmark_context{}; });
+	run_benchmarks<tdag_benchmark_context>();
 }
 
 TEMPLATE_TEST_CASE_SIG("generating large command graphs for N nodes", "[benchmark][group:command-graph]", ((size_t NumNodes), NumNodes), 1, 4, 16) {
 	test_utils::benchmark_thread_pinner pinner;
-	run_benchmarks([] { return command_graph_generator_benchmark_context{NumNodes}; });
+	run_benchmarks<cdag_benchmark_context>(NumNodes);
 }
 
 TEMPLATE_TEST_CASE_SIG(
     "generating large instruction graphs for N devices", "[benchmark][group:instruction-graph]", ((size_t NumDevices), NumDevices), 1, 4, 16) {
 	test_utils::benchmark_thread_pinner pinner;
 	constexpr static size_t num_nodes = 2;
-	run_benchmarks([] { return instruction_graph_generator_benchmark_context(num_nodes, NumDevices); });
+	run_benchmarks<idag_benchmark_context>(num_nodes, NumDevices);
 }
 
 TEMPLATE_TEST_CASE_SIG("generating large instruction graphs for N devices without d2d copy support", "[benchmark][group:instruction-graph]",
     ((size_t NumDevices), NumDevices), 1, 4, 16) {
 	test_utils::benchmark_thread_pinner pinner;
 	constexpr static size_t num_nodes = 2;
-	run_benchmarks([] { return instruction_graph_generator_benchmark_context(num_nodes, NumDevices, false /* supports_d2d_copies */); });
+	run_benchmarks<idag_benchmark_context>(num_nodes, NumDevices, false /* supports_d2d_copies */);
 }
 
 TEMPLATE_TEST_CASE_SIG("building command- and instruction graphs in a dedicated scheduler thread for N nodes", "[benchmark][group:scheduler]",
@@ -482,42 +513,46 @@ TEMPLATE_TEST_CASE_SIG("building command- and instruction graphs in a dedicated 
 {
 	test_utils::benchmark_thread_pinner pinner;
 	constexpr static size_t num_devices = 1;
-	SECTION("reference: single-threaded immediate graph generation") {
-		run_benchmarks([&] { return command_graph_generator_benchmark_context(NumNodes); });
+	SECTION("reference: single-threaded graph generation") { //
+		run_benchmarks<all_dags_benchmark_context>(NumNodes, num_devices);
 	}
-	SECTION("immediate submission to a scheduler thread") {
+	SECTION("using a dedicated scheduler thread") {
 		restartable_scheduler_thread thrd;
-		run_benchmarks([&] { return scheduler_benchmark_context(thrd, NumNodes, num_devices); });
-	}
-	SECTION("reference: throttled single-threaded graph generation at 10 us per task") {
-		run_benchmarks([] { return submission_throttle_benchmark_context<command_graph_generator_benchmark_context>(10us, NumNodes); });
-	}
-	SECTION("throttled submission to a scheduler thread at 10 us per task") {
-		restartable_scheduler_thread thrd;
-		run_benchmarks([&] { return submission_throttle_benchmark_context<scheduler_benchmark_context>(10us, thrd, NumNodes, num_devices); });
+		run_benchmarks<scheduler_benchmark_context>(thrd, NumNodes, num_devices);
 	}
 }
 
-template <typename BenchmarkContextFactory, typename BenchmarkContextConsumer>
-void debug_graphs(BenchmarkContextFactory&& make_ctx, BenchmarkContextConsumer&& debug_ctx) {
-	debug_ctx(generate_soup_graph(make_ctx(), 10));
-	debug_ctx(generate_chain_graph(make_ctx(), 5));
-	debug_ctx(generate_tree_graph<tree_topology::expanding>(make_ctx(), 7));
-	debug_ctx(generate_tree_graph<tree_topology::contracting>(make_ctx(), 7));
-	debug_ctx(generate_wave_sim_graph(make_ctx(), 2));
-	debug_ctx(generate_jacobi_graph(make_ctx(), 5));
+template <typename BenchmarkContext, typename BenchmarkContextConsumer, typename... ContextArgs>
+void debug_graphs(BenchmarkContextConsumer&& debug_ctx, ContextArgs&&... args) {
+	const auto run = [&](const auto& cb) {
+		BenchmarkContext ctx(std::forward<ContextArgs>(args)...);
+		ctx.initialize();
+		cb(ctx);
+		ctx.prepare();
+		ctx.execute();
+		ctx.finalize();
+		debug_ctx(ctx);
+	};
+	run([](auto& ctx) { generate_soup_graph(ctx, 10); });
+	run([](auto& ctx) { generate_chain_graph(ctx, 5); });
+	run([](auto& ctx) { generate_tree_graph<tree_topology::expanding>(ctx, 7); });
+	run([](auto& ctx) { generate_tree_graph<tree_topology::contracting>(ctx, 7); });
+	run([](auto& ctx) { generate_wave_sim_graph(ctx, 2); });
+	run([](auto& ctx) { generate_jacobi_graph(ctx, 5); });
 }
 
 TEST_CASE("printing benchmark task graphs", "[.][debug-graphs][task-graph]") {
-	debug_graphs([] { return task_manager_benchmark_context{}; }, [](auto&& ctx) { fmt::print("{}\n\n", detail::print_task_graph(ctx.trec)); });
+	REQUIRE(test_utils::g_print_graphs); // requires --print-graphs
+	debug_graphs<tdag_benchmark_context>([](auto&& ctx) { fmt::print("{}\n\n", detail::print_task_graph(ctx.trec)); });
 }
 
 TEST_CASE("printing benchmark command graphs", "[.][debug-graphs][command-graph]") {
-	debug_graphs(
-	    [] { return command_graph_generator_benchmark_context{2}; }, [](auto&& ctx) { fmt::print("{}\n\n", detail::print_command_graph(0, ctx.crec)); });
+	REQUIRE(test_utils::g_print_graphs); // requires --print-graphs
+	debug_graphs<cdag_benchmark_context>([](auto&& ctx) { fmt::print("{}\n\n", detail::print_command_graph(0, ctx.crec)); }, 2 /* num_nodes */);
 }
 
 TEST_CASE("printing benchmark instruction graphs", "[.][debug-graphs][instruction-graph]") {
-	debug_graphs([] { return instruction_graph_generator_benchmark_context(2, 2); },
-	    [](auto&& ctx) { fmt::print("{}\n\n", detail::print_instruction_graph(ctx.irec, ctx.crec, ctx.trec)); });
+	REQUIRE(test_utils::g_print_graphs); // requires --print-graphs
+	debug_graphs<idag_benchmark_context>(
+	    [](auto&& ctx) { fmt::print("{}\n\n", detail::print_instruction_graph(ctx.irec, ctx.crec, ctx.trec)); }, 2 /* num_nodes */, 2 /* num_devices */);
 }

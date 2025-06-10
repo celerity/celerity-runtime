@@ -15,6 +15,62 @@ require 'gruff'
 require 'json'
 require 'digest'
 
+# Monkey patch Gruff to allow left-aligning labels in the legend; only allow one entry per line.
+module Gruff
+  class Base
+    def draw_legend
+      return if @hide_legend
+
+      legend_labels = store.data.map(&:label)
+      legend_square_width = @legend_box_size # small square with color of this item
+      line_height = [legend_caps_height, legend_square_width].max + @legend_margin
+
+      current_y_offset = begin
+        if @legend_at_bottom
+          @graph_bottom + @legend_margin + labels_caps_height + @label_margin + (@x_axis_label ? (@label_margin * 2) + marker_caps_height : 0)
+        else
+          hide_title? ? @top_margin + @title_margin : @top_margin + @title_margin + title_caps_height
+        end
+      end
+
+      current_x_offset = @left_margin
+
+      legend_labels.each_with_index do |legend_label, index|
+        unless legend_label.empty?
+          legend_label_width = calculate_width(@legend_font, legend_label)
+
+          # Draw label
+          text_renderer = Gruff::Renderer::Text.new(renderer, legend_label, font: @legend_font)
+          text_renderer.add_to_render_queue(legend_label_width,
+                                            legend_square_width,
+                                            current_x_offset + (legend_square_width * 1.7),
+                                            current_y_offset,
+                                            Magick::WestGravity) # Change gravity to Magick::WestGravity for left alignment
+
+          # Now draw box with color of this dataset
+          rect_renderer = Gruff::Renderer::Rectangle.new(renderer, color: store.data[index].color)
+          rect_renderer.render(current_x_offset,
+                               current_y_offset,
+                               current_x_offset + legend_square_width,
+                               current_y_offset + legend_square_width)
+
+          current_y_offset += line_height
+        end
+      end
+    end
+
+    def calculate_legend_height
+      return 0.0 if @hide_legend
+
+      legend_labels = store.data.map(&:label)
+      line_height = [legend_caps_height, @legend_box_size].max
+
+      # Divide by two because we always draw two box plots for each benchmark (before / after); one has an empty label
+      ((line_height * legend_labels.count) + (@legend_margin * (legend_labels.count - 1))) / 2
+    end
+  end
+end
+
 # information regarding the benchmark file
 BENCH_FN = 'ci/perf/gpuc2_bench.csv'
 NAME_COL_1 = "test case"         # first name column
@@ -42,7 +98,8 @@ FLAT_THRESHOLD_OFFSET = 10
 MAX_BENCHMARKS_TO_LIST = 3  # if more than this number of benchmarks is affected, just report the count
 
 # file name for the message that will be posted
-MESSAGE_FN = "#{ENV['GITHUB_WORKSPACE']}/check_perf_message.txt"
+MESSAGE_DIR = "#{ENV['GITHUB_WORKSPACE']}/"
+MESSAGE_FN = "check_perf_message.txt"
 
 # check if the expected files and env variables are present
 if !File.exist?(BENCH_FN)
@@ -68,7 +125,7 @@ if /Check-perf-impact results:[^(]*\((.*)\)/ =~ ENV["PREV_COMMENT_BODY"]
   if bench_file_digest == $1
     puts "Same csv already processed, early exit"
     `echo "done=true" >> $GITHUB_OUTPUT`
-    exit 
+    exit
   end
 end
 
@@ -161,13 +218,12 @@ if new_data != old_data
   cur_chart_start_mean = 0
   cur_chart_idx = 0
   cur_img_idx = 0
+  cur_chart_category = nil
+  consecutive_category_count = 1
   g = nil
-  prev_mean = 1
 
   # closure for completing the current in-progress chart
   finish_chart = Proc.new do
-    # generate a usable number of subdivisions
-    g.y_axis_increment = prev_mean / 7
     # generate image
     img = g.to_image()
     # if there was a significant change, add border to image
@@ -183,64 +239,85 @@ if new_data != old_data
     in_chart = false
   end
 
-  old_data_map.sort_by { |k,v| mean(v) }.each do |bench_key, old_bench_raw|
-    # skip deleted benchmarks
-    next unless new_data_map.key?(bench_key)
-
+  all_keys = old_data_map.keys | new_data_map.keys
+  all_keys.each do |bench_key|
     # gather some important information
-    new_bench_raw = new_data_map[bench_key]
+    old_bench_raw = old_data_map[bench_key] || nil
+    new_bench_raw = new_data_map[bench_key] || nil
+    is_new_or_removed = old_bench_raw.nil? || new_bench_raw.nil?
     bench_category = bench_key[0]
     bench_name = bench_key[1]
-
-    # finish the current chart if we have reached the maximum per image
-    # or if the relative y axis difference becomes too large
-    if in_chart && (cur_chart_start_mean < mean(old_bench_raw) / 20 ||
-                    cur_chart_idx >= MAX_CHARTS_PER_IMAGE)
-      finish_chart.()
+    if old_bench_raw.nil?
+      bench_name = "ADDED: " + bench_name
+    elsif new_bench_raw.nil?
+      bench_name = "REMOVED: " + bench_name
     end
-
-    # start a new chart
-    if !in_chart
-      g = Gruff::Box.new(GRAPH_WIDTH)
-      g.theme_pastel
-      g.hide_title = true
-      g.marker_font_size = 15
-      g.legend_at_bottom = true
-      g.legend_font_size = 9
-      g.legend_box_size = 10
-      g.legend_margin = 2
-      g.y_axis_label = "Time (nanoseconds)"
-
-      in_chart = true
-      significant_perf_improvement_in_this_chart = false
-      significant_perf_reduction_in_this_chart = false
-      cur_chart_start_mean = mean(old_bench_raw)
-      cur_chart_idx = 0
-    end
+    # If both old and new data is available, we default to old - this is an arbitrary choice
+    bench_mean = old_bench_raw.nil? ? mean(new_bench_raw) : mean(old_bench_raw)
 
     # check if there was a highly significant difference
-    new_median = median(scalar_add(new_bench_raw, FLAT_THRESHOLD_OFFSET))
-    old_median = median(scalar_add(old_bench_raw, FLAT_THRESHOLD_OFFSET))
-    rel_difference = new_median / old_median
-    relative_times_per_category[bench_category] << rel_difference
-    # we output these for easy inspection in the CI log
-    puts "%3.2f <= %s" % [rel_difference, bench_name]
-    if rel_difference > THRESHOLD_SLOW
-      significantly_slower_benchmarks << bench_name
-      significant_perf_reduction_in_this_chart = true
-    elsif rel_difference < THRESHOLD_FAST
-      significantly_faster_benchmarks << bench_name
-      significant_perf_improvement_in_this_chart = true
+    rel_difference = 0
+    if !is_new_or_removed
+      new_median = median(scalar_add(new_bench_raw, FLAT_THRESHOLD_OFFSET))
+      old_median = median(scalar_add(old_bench_raw, FLAT_THRESHOLD_OFFSET))
+      rel_difference = new_median / old_median
+      relative_times_per_category[bench_category] << rel_difference
+      # we output these for easy inspection in the CI log
+      puts "%3.2f <= %s" % [rel_difference, bench_name]
+      if rel_difference > THRESHOLD_SLOW
+        significantly_slower_benchmarks << bench_name
+      elsif rel_difference < THRESHOLD_FAST
+        significantly_faster_benchmarks << bench_name
+      end
     end
 
     # add old and new boxes to chart if they are significant according to the charting thresholds
-    if rel_difference > MINOR_THRESHOLD_SLOW || rel_difference < MINOR_THRESHOLD_FAST
+    if is_new_or_removed || rel_difference > MINOR_THRESHOLD_SLOW || rel_difference < MINOR_THRESHOLD_FAST
+      # finish current chart if the category has changed, the relative difference on the y-axis is too large,
+      # or we've reached the maximum number of plots per image
+      ratio = [cur_chart_start_mean, bench_mean].max / [cur_chart_start_mean, bench_mean].min
+      if in_chart && (cur_chart_category != bench_category || ratio > 50 || cur_chart_idx >= MAX_CHARTS_PER_IMAGE)
+        finish_chart.()
+      end
+
+      # start a new chart if necessary
+      if !in_chart
+        g = Gruff::Box.new(GRAPH_WIDTH)
+        g.theme_pastel
+        g.title = bench_category
+        g.marker_font_size = 15
+        g.legend_at_bottom = true
+        g.legend_font_size = 9
+        g.legend_box_size = 10
+        g.legend_margin = 2
+        g.y_axis_label = "Time (nanoseconds)"
+        g.stroke_width = 0.5
+
+        in_chart = true
+        significant_perf_improvement_in_this_chart = false
+        significant_perf_reduction_in_this_chart = false
+        cur_chart_start_mean = bench_mean
+        cur_chart_idx = 0
+        if cur_chart_category == bench_category
+          consecutive_category_count += 1
+          g.title = bench_category + " (#{consecutive_category_count})"
+        else
+          consecutive_category_count = 1
+        end
+        cur_chart_category = bench_category
+      end
+
+      if !is_new_or_removed && rel_difference > THRESHOLD_SLOW
+        significant_perf_reduction_in_this_chart = true
+      elsif !is_new_or_removed && rel_difference < THRESHOLD_FAST
+        significant_perf_improvement_in_this_chart = true
+      end
+
+      # plot the data
       g.data bench_name, old_bench_raw, get_wheel_color
       g.data nil, new_bench_raw, get_wheel_color
       cur_chart_idx += 1
     end
-
-    prev_mean = mean(old_bench_raw)
   end
   # don't forget to finish the last chart!
   finish_chart.()
@@ -293,7 +370,11 @@ else
     end
   end
 end
-puts message
+puts "\n" + message
 
 # write message to workspace file for subsequent step
-File.write(MESSAGE_FN, message)
+if File.writable?(MESSAGE_DIR)
+  File.write(MESSAGE_DIR + MESSAGE_FN, message)
+else
+  puts "\nCannot write to '#{MESSAGE_DIR}', skipping message generation"
+end

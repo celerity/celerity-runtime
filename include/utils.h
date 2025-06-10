@@ -19,6 +19,14 @@
 #define CELERITY_DETAIL_UTILS_CAT_2(a, b) a##b
 #define CELERITY_DETAIL_UTILS_CAT(a, b) CELERITY_DETAIL_UTILS_CAT_2(a, b)
 
+#define CELERITY_DETAIL_UTILS_NON_COPYABLE(classname)                                                                                                          \
+	classname(const classname&) = delete;                                                                                                                      \
+	classname& operator=(const classname&) = delete
+
+#define CELERITY_DETAIL_UTILS_NON_MOVABLE(classname)                                                                                                           \
+	classname(classname&&) = delete;                                                                                                                           \
+	classname& operator=(classname&&) = delete
+
 namespace celerity::detail::utils {
 
 template <typename T, typename P>
