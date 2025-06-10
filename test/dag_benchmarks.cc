@@ -131,12 +131,16 @@ struct tdag_benchmark_context : dag_benchmark_context, private task_manager::del
 
 	void task_created(const task* tsk) override { m_tasks.push_back(tsk); }
 
+	// is called before the initialization of benchmark tasks
 	void initialize() { tm.generate_epoch_task(celerity::detail::epoch_action::init); }
 
+	// is called after the initialization of benchmark tasks
 	void prepare() { m_tasks.reserve(m_command_groups.size()); }
 
+	// executes everything that is actually benchmarked (measured)
 	void execute() { create_all_tasks(); }
 
+	// finalizes the benchmark context, e.g. generates shutdown epoch, and clears the command groups
 	void finalize() {
 		tm.generate_epoch_task(celerity::detail::epoch_action::shutdown);
 		m_command_groups.clear();
@@ -162,7 +166,7 @@ struct cdag_benchmark_context : tdag_benchmark_context {
 
 	void initialize() {
 		tdag_benchmark_context::initialize();
-		create_all_commands();
+		create_all_commands(); // used to initialize the m_command_batches even if empty
 		m_tasks.clear();
 	}
 
@@ -203,7 +207,7 @@ struct idag_benchmark_context : cdag_benchmark_context {
 
 	void initialize() {
 		cdag_benchmark_context::initialize();
-		create_all_instructions();
+		create_all_instructions(); // used to initialize the m_command_batches even if empty
 		m_command_batches.clear();
 	}
 
