@@ -6,6 +6,7 @@
 
 #include <celerity.h>
 
+#include "task_graph_test_utils.h"
 #include "test_utils.h"
 
 namespace celerity {
@@ -230,34 +231,15 @@ namespace detail {
 	}
 
 	TEST_CASE("conflicts between producer-accessors and reductions are reported", "[task-manager]") {
-		test_utils::task_test_context tt;
+		test_utils::tdag_test_context tctx(1 /* num_collective_nodes */);
 
-		auto buf_0 = tt.mbf.create_buffer(range<1>{1});
+		auto buf_0 = tctx.create_buffer(range<1>{1});
 
-		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_conflict)>(tt.tm, [&](handler& cgh) {
-			test_utils::add_reduction(cgh, tt.mrf, buf_0, false);
-			test_utils::add_reduction(cgh, tt.mrf, buf_0, false);
-		}));
-
-		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tt.tm, [&](handler& cgh) {
-			test_utils::add_reduction(cgh, tt.mrf, buf_0, false);
-			buf_0.get_access<access_mode::read>(cgh, fixed<1>({0, 1}));
-		}));
-
-		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tt.tm, [&](handler& cgh) {
-			test_utils::add_reduction(cgh, tt.mrf, buf_0, false);
-			buf_0.get_access<access_mode::write>(cgh, fixed<1>({0, 1}));
-		}));
-
-		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tt.tm, [&](handler& cgh) {
-			test_utils::add_reduction(cgh, tt.mrf, buf_0, false);
-			buf_0.get_access<access_mode::read_write>(cgh, fixed<1>({0, 1}));
-		}));
-
-		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tt.tm, [&](handler& cgh) {
-			test_utils::add_reduction(cgh, tt.mrf, buf_0, false);
-			buf_0.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 1}));
-		}));
+		CHECK_THROWS(tctx.device_compute(range<1>{ones}).reduce(buf_0, false).reduce(buf_0, false).submit());
+		CHECK_THROWS(tctx.device_compute(range<1>{ones}).reduce(buf_0, false).read(buf_0, all{}).submit());
+		CHECK_THROWS(tctx.device_compute(range<1>{ones}).reduce(buf_0, false).write(buf_0, all{}).submit());
+		CHECK_THROWS(tctx.device_compute(range<1>{ones}).reduce(buf_0, false).read_write(buf_0, all{}).submit());
+		CHECK_THROWS(tctx.device_compute(range<1>{ones}).reduce(buf_0, false).discard_write(buf_0, all{}).submit());
 	}
 
 	template <access_mode>
