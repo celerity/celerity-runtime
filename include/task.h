@@ -64,6 +64,15 @@ namespace detail {
 		/// Returns a set of bounding boxes, one for each accessed region, that must be allocated contiguously.
 		box_vector<3> compute_required_contiguous_boxes(const buffer_id bid, const box<3>& execution_range) const;
 
+		// Retrieves the range mapper associated with a specific buffer ID, or nullptr if not found.
+		const range_mapper_base* get_range_mapper(buffer_id search_bid) const {
+			for(const auto& ba : m_accesses) {
+				if(ba.bid == search_bid) { return ba.range_mapper.get(); }
+			}
+			return nullptr; // Not found
+		}
+
+
 	  private:
 		std::vector<buffer_access> m_accesses;
 		std::unordered_set<buffer_id> m_accessed_buffers; ///< Cached set of buffer ids found in m_accesses

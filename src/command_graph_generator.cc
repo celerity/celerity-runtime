@@ -73,6 +73,31 @@ bool is_topologically_sorted(Iterator begin, Iterator end) {
 	return true;
 }
 
+bool command_graph_generator::is_generator_kernel(const task& tsk) const {
+	if(tsk.get_type() != task_type::device_compute) return false;
+
+	// Must not have a hint that modifies splitting:
+	if(tsk.get_hint<experimental::hints::split_1d>() != nullptr || tsk.get_hint<experimental::hints::split_2d>() != nullptr) { return false; }
+
+	// Must have exactly one buffer access
+	const auto& bam = tsk.get_buffer_access_map();
+	if(bam.get_num_accesses() != 1) return false;
+
+	// That single access must be discard_write
+	const auto [bid, mode] = bam.get_nth_access(0);
+	if(mode != access_mode::discard_write) return false;
+
+	// Must produce exactly the entire buffer
+	const auto full_box = box(subrange({}, tsk.get_global_size()));
+	if(bam.get_task_produced_region(bid) != full_box) return false;
+
+	// Confirm the *range mapper* is truly one_to_one:
+	const auto rm = bam.get_range_mapper(bid);
+	if(rm == nullptr || !rm->is_one_to_one()) { return false; }
+
+	return true;
+}
+
 std::vector<const command*> command_graph_generator::build_task(const task& tsk) {
 	const auto epoch_to_prune_before = m_epoch_for_new_commands;
 	batch current_batch;
@@ -461,6 +486,29 @@ void command_graph_generator::update_local_buffer_fresh_regions(const task& tsk,
 }
 
 void command_graph_generator::generate_distributed_commands(batch& current_batch, const task& tsk) {
+	// If it's a generator kernel, we generate commands immediately and skip partial generation altogether.
+	if(is_generator_kernel(tsk)) {
+		// Identify which buffer is discard-written
+		const auto [gen_bid, _] = tsk.get_buffer_access_map().get_nth_access(0);
+		auto& bstate = m_buffers.at(gen_bid);
+		const auto chunks = split_task_and_assign_chunks(tsk);
+
+		// Create a command for each chunk that belongs to our local node.
+		for(const auto& a_chunk : chunks) {
+			if(a_chunk.executed_on != m_local_nid) continue;
+			auto* cmd = create_command<execution_command>(current_batch, &tsk, subrange<3>{a_chunk.chnk}, false,
+			    [&](const auto& record_debug_info) { record_debug_info(tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }); });
+
+			// Mark that subrange as freshly written, so there’s no “uninitialized read” later.
+			box<3> write_box(a_chunk.chnk.offset, a_chunk.chnk.offset + a_chunk.chnk.range);
+			region<3> written_region{write_box};
+			bstate.local_last_writer.update_region(written_region, cmd);
+			bstate.initialized_region = region_union(bstate.initialized_region, written_region);
+		}
+		// Return here so we skip the normal device-logic below.
+		return;
+	}
+
 	const auto chunks = split_task_and_assign_chunks(tsk);
 	const auto chunks_with_requirements = compute_per_chunk_requirements(tsk, chunks);
 
@@ -527,8 +575,6 @@ void command_graph_generator::generate_distributed_commands(batch& current_batch
 
 			if(!produced.empty()) {
 				generate_anti_dependencies(tsk, bid, buffer.local_last_writer, produced, cmd);
-
-				// Update last writer
 				buffer.local_last_writer.update_region(produced, cmd);
 				buffer.replicated_regions.update_region(produced, node_bitset{});
 
