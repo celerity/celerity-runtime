@@ -31,6 +31,7 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 - Celerity warns on excessive calls to `queue::wait()` or `distr_queue::slow_full_sync()` in a long running program.
   This operation has a much more pronounced performance penalty than its SYCL counterpart (#283)
 - On systems that do not support device-to-device copies, data is now staged in linearized buffers for better performance (#287)
+- Removed the flush_async workaround for newer ACPP versions, keeping compatibility with older versions (#333)
 - The `access::neighborhood` built-in range mapper now receives a `range` instead of a coordinate list (#292)
 - Overhauled the [installation](docs/installation.md) and [configuration](docs/configuration.md) documentation (#309)
 - Celerity will now queue up several command groups in order to combine allocations and elide resize operations.

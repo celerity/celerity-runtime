@@ -65,12 +65,17 @@ std::optional<std::chrono::nanoseconds> delayed_async_event::get_native_executio
 	return m_state->m_event.get_native_execution_time();
 }
 
+template <typename DagManager>
+static void try_flush_async(DagManager& dag) {
+	// AdaptiveCpp (prior to https://github.com/AdaptiveCpp/AdaptiveCpp/pull/1798) does not guarantee that command groups are actually scheduled until an
+	// explicit await operation, which we cannot insert without blocking the executor loop (see https://github.com/AdaptiveCpp/AdaptiveCpp/issues/599). Instead,
+	// we explicitly flush the queue to be able to continue using our polling-based approach.
+	if constexpr(requires { dag.flush_async(); }) { dag.flush_async(); }
+}
+
 void flush(sycl::queue& queue) {
 #if CELERITY_WORKAROUND(ACPP)
-	// AdaptiveCpp does not guarantee that command groups are actually scheduled until an explicit await operation, which we cannot insert without
-	// blocking the executor loop (see https://github.com/AdaptiveCpp/AdaptiveCpp/issues/599). Instead, we explicitly flush the queue to be able to continue
-	// using our polling-based approach.
-	queue.get_context().AdaptiveCpp_runtime()->dag().flush_async();
+	try_flush_async(queue.get_context().AdaptiveCpp_runtime()->dag());
 #else
 	(void)queue;
 #endif
