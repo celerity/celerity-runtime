@@ -6,7 +6,24 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic
 Versioning](http://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2025-08-18
+
+This release includes changes that may require adjustments when upgrading:
+- Celerity now requires C++20
+- `celerity::distr_queue` has been replaced by `celerity::queue`.
+  Multiple instances of `celerity::queue` are now supported, with behavior more closely aligned with SYCL.
+- Buffer access handling has been refactored: celerity::access_mode is now a dedicated enum.
+  Using `sycl::access_mode` on Celerity buffers is no longer supported.
+- Coordinate-list constructors of `access::neighborhood` have been deprecated in favor of the `range` overload.
+- We recommend performing a clean build when updating Celerity to ensure all updated submodule dependencies are properly propagated.
+
+We recommend using the following SYCL versions with this release:
+
+- DPC++: ad494e9d or newer
+- AdaptiveCpp (formerly hipSYCL): v24.06
+- SimSYCL: master
+
+See our [platform support guide](docs/platform-support.md) for a complete list of all officially supported configurations.
 
 ### Added
 
@@ -24,6 +41,10 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Update Tracy dependency to v0.11.1 (#281)
+- Update libenvpp dependency to 1.5 (#312)
+- Update fmt dependency to 11.1.2 (#328)
+- Update spdlog dependency to HEAD > 1.15.0 (#328)
 - Celerity now requires C++20 (#291)
 - Automatic runtime shutdown, which was previously triggered by the last queue / buffer / host object going out of scope,
   is now postponed until process termination (`atexit()`). This allows multiple non-overlapping sections of Celerity code
@@ -36,16 +57,51 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 - Overhauled the [installation](docs/installation.md) and [configuration](docs/configuration.md) documentation (#309)
 - Celerity will now queue up several command groups in order to combine allocations and elide resize operations.
   This behavior can be influenced using the new `experimental::set_lookahead` and `experimental::flush` APIs (#298)
+- Reduced small host-buffer allocations in MPI transfers by accumulating touched boxes during `anticipate()` (#313)
+- Celerity internals are no longer exposed to users through installed headers (#308)
+- Buffer `access_mode` is now a dedicated `celerity::access_mode` enum instead of an alias of `sycl::access_mode`, simplifying 
+  the include tree and removing namespace ambiguity. `sycl::access_mode` can no longer be used with Celerity buffers. (#315)
+- Uninitialized read warnings now provide more helpful information (#321)
+- Improved Tracy integration for executor starvation. Celerity now also prints a warning when execution time exceeds a 
+  given percentage threshold, indicating that the application might be scheduler-bound (#322)
 
 ### Fixed
 
 - Host-initialized buffers will not read from user-provided memory after the last reference to the buffer has been dropped (#283)
+- Fix a build issue on macOS where moving a std::function did not clear the source, causing failing test cases (#285)
+- Fix a path hint for finding AdaptiveCpp when using an installed Celerity (#286)
+- Fix a race condition in unit tests by updating last_epoch_reached before signalling the epoch promise, ensuring proper synchronization (#307)
 - Fix a build issue with (rare) configurations which enable both Tracy and OOB-checks (#331)
 
 ### Deprecated
 
 - `celerity::distr_queue` is deprecated in favor of `celerity::queue` (#283)
 - The coordinate-list constructors of `access::neighborhood` are deprecated in favor of the `range` overload (#292)
+
+### Internal
+
+- Command graphs generate a single "fat" push command instead of a septate push for each write and target node. (#290)
+- Event polling now only happens for instructions that are actively executing (#293)
+- Task management now uses epoch-based structures, removes the ring buffer size limit, and handles tasks via 
+  stable pointers, simplifying scheduler and application thread interactions (#295)
+- Command graph now uses `command` instead of `abstract_command`, moves CDAG-related pruning to the scheduler, 
+  and maintains command pointers in the CDAG generator (#297)
+- `buffer_access_map` now works in terms of consumed and produced regions instead of access modes. 
+  This includes various related improvements to task requirements, execution ranges, and graph printing (#300)
+- Use `region_map::update_box` instead of `update_region` where applicable (#302)
+- Improved "system" benchmarks to better capture effects that are highly significant in real-world workloads (#304)
+- Unified thread code, with a single source of truth for thread names and Tracy thread ordering (#310)
+- Optimize `perform_task_buffer_accesses` to skip redundant last-writers updates and transpose loops, 
+  yielding minor performance improvements in scheduler-bound workloads (#317)
+- The SimSYCL workaround for thread safety has been removed (#318)
+- Prevent unbounded growth in `receive_arbiter` by caching active transfers (#319)
+- Centralize definition of Tracy colors (#320)
+- Change split functions to work on box instead of chunk (#323)
+- Align await-pushes with pushes by computing the union of regions for remote chunks executed on the same node (#324)
+- Celerity now uses `SYCL_IS_*` macros instead of `defined(__SYCL_COMPILER_VERSION)` for checking the SYCL version (#329)
+- Removed internal branches on `CELERITY_FEATURE_UNNAMED_KERNELS`, which now only exists for backwards compatibility in 
+  applications (#329)
+
 
 ## [0.6.0] - 2024-08-12
 

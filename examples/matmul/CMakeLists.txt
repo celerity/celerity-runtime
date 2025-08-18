@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.13)
 project(matmul LANGUAGES CXX)
 
-find_package(Celerity 0.6.0 REQUIRED)
+find_package(Celerity 0.7.0 REQUIRED)
 
 add_executable(matmul matmul.cc)
 add_celerity_to_target(TARGET matmul SOURCES matmul.cc)
