@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.13)
 project(distr_io LANGUAGES CXX)
 
-find_package(Celerity 0.6.0 REQUIRED)
+find_package(Celerity 0.7.0 REQUIRED)
 if(NOT CELERITY_ENABLE_MPI)
   message(SEND_ERROR "Your Celerity installation is built without MPI support.\nSkip this example.")
 endif()
