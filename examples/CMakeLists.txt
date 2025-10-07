@@ -32,6 +32,7 @@ add_example(compressed)
 add_example(compressed_nd_range)
 add_example(compressed_actually)
 add_example(compression_local_wave_sim)
+add_example(global_memory_compression)
 
 if(CELERITY_ENABLE_MPI)
   find_package(PkgConfig QUIET)
