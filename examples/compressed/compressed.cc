@@ -6,7 +6,7 @@
 #include "compression.h"
 #include <celerity.h>
 
-using compression_type_a = celerity::compressed<celerity::compression::quantization<float, uint16_t>>;
+using compression_type_a = celerity::compressed<celerity::compression::quantization<float, uint16_t>, celerity::compression_category::element_wise>;
 
 void setup_wave(celerity::queue& queue, celerity::buffer<float, 2, compression_type_a> u, sycl::float2 center, float amplitude, sycl::float2 sigma) {
 	queue.submit([&](celerity::handler& cgh) {

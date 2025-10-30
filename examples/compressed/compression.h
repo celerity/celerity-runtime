@@ -35,6 +35,20 @@ struct vec_size<sycl::vec<T, N>> {
 };
 
 namespace compression {
+template <typename T, typename Q>
+struct quantization {
+	using value_type = T;
+	using quant_type = Q;
+};
+
+template <typename T, typename Q>
+struct point_cloud {
+	using value_type = T;
+	using compression_type = Q;
+};
+} // namespace celerity::compression
+
+namespace compression {
 	template <typename T, typename Q>
 	struct conversion {
 		using value_type = T;
@@ -42,8 +56,8 @@ namespace compression {
 	};
 } // namespace compression
 
-template <typename T, typename Q>
-class compressed<celerity::compression::conversion<T, Q>> {
+template <typename T, typename Q, compression_category Category>
+class compressed<celerity::compression::conversion<T, Q>, Category> {
 	using quant_type = typename celerity::compression::conversion<T, Q>::quant_type;
 	using value_type = typename celerity::compression::conversion<T, Q>::value_type;
 
@@ -103,8 +117,8 @@ class compressed<celerity::compression::conversion<T, Q>> {
 	vec_value_type m_upper_bound;
 };
 
-template <typename T, typename Q>
-class compressed<celerity::compression::quantization<T, Q>> {
+template <typename T, typename Q, compression_category Category>
+class compressed<celerity::compression::quantization<T, Q>, Category> {
 	using quant_type = typename celerity::compression::quantization<T, Q>::quant_type;
 	using value_type = typename celerity::compression::quantization<T, Q>::value_type;
 
@@ -191,23 +205,23 @@ class compressed<celerity::compression::quantization<T, Q>> {
 	vec_value_type m_upper_bound;
 };
 
-template <typename T, typename C, template <typename, typename> typename SelectedCompression>
+template <typename T, typename C, template <typename, typename> typename SelectedCompression, compression_category Category>
 struct uncompressed_wrapper_const {
   public:
-	uncompressed_wrapper_const(const C& compressed_ref, const compressed<SelectedCompression<T, C>>& compression)
+	uncompressed_wrapper_const(const C& compressed_ref, const compressed<SelectedCompression<T, C>, Category>& compression)
 	    : m_compressed_ref(compressed_ref), m_compression(compression) {}
 
 	operator T() const { return m_compression.decompress(m_compressed_ref); }
 
   private:
 	const C& m_compressed_ref;
-	const compressed<SelectedCompression<T, C>>& m_compression;
+	const compressed<SelectedCompression<T, C>, Category>& m_compression;
 };
 
-template <typename T, typename C, template <typename, typename> typename SelectedCompression>
+template <typename T, typename C, template <typename, typename> typename SelectedCompression, compression_category Category>
 struct uncompressed_wrapper {
   public:
-	uncompressed_wrapper(C& compressed_ref, const compressed<SelectedCompression<T, C>>& compression)
+	uncompressed_wrapper(C& compressed_ref, const compressed<SelectedCompression<T, C>, Category>& compression)
 	    : m_compressed_ref(compressed_ref), m_compression(compression) {}
 
 	uncompressed_wrapper& operator=(T value) {
@@ -220,20 +234,20 @@ struct uncompressed_wrapper {
 
   private:
 	C& m_compressed_ref;
-	const compressed<SelectedCompression<T, C>>& m_compression;
+	const compressed<SelectedCompression<T, C>, Category>& m_compression;
 };
 
 
-template <typename DataT, int Dims, typename Intype, template <typename, typename> typename SelectedCompression>
-class buffer<Intype, Dims, compressed<SelectedCompression<Intype, DataT>>> : public buffer<DataT, Dims, compression::uncompressed> {
+template <typename DataT, int Dims, typename Intype, template <typename, typename> typename SelectedCompression, compression_category Category>
+class buffer<Intype, Dims, compressed<SelectedCompression<Intype, DataT>, Category>> : public buffer<DataT, Dims, compression::uncompressed> {
   public:
 	using base = buffer<DataT, Dims, compression::uncompressed>;
 	using compression = SelectedCompression<Intype, DataT>;
 
-	buffer(const Intype* data, range<Dims> range, compressed<compression>& compression)
+	buffer(const Intype* data, range<Dims> range, compressed<compression, Category>& compression)
 	    : buffer(std::move(compression.compress_data(data, range.size())), range, compression) {}
 
-	buffer(range<Dims> range, compressed<compression>& compression) : base(range), m_compression(compression) {
+	buffer(range<Dims> range, compressed<compression, Category>& compression) : base(range), m_compression(compression) {
 		assert(m_compression.get_lower_bound() != m_compression.get_upper_bound() && "Lower bound is equal to upper bound");
 	}
 
@@ -253,41 +267,41 @@ class buffer<Intype, Dims, compressed<SelectedCompression<Intype, DataT>>> : pub
 		return *this;
 	}
 
-	const compressed<compression>& get_compression() const { return m_compression; }
+	const compressed<compression, Category>& get_compression() const { return m_compression; }
 
   private:
-	buffer(std::vector<DataT>&& data, range<Dims> range, compressed<compression>& compression)
+	buffer(std::vector<DataT>&& data, range<Dims> range, compressed<compression, Category>& compression)
 	    : base(data.data(), range), m_data(std::move(data)), m_compression(compression) {}
 
 	std::vector<DataT> m_data;
 
-	compressed<SelectedCompression<Intype, DataT>> m_compression;
+	compressed<SelectedCompression<Intype, DataT>, Category> m_compression;
 };
 
 
-template <typename DataT, int Dims, typename Intype, access_mode Mode, target Target, template <typename, typename> typename SelectedCompression>
-class accessor<DataT, Dims, Mode, Target, compressed<SelectedCompression<Intype, DataT>>>
+template <typename DataT, int Dims, typename Intype, access_mode Mode, target Target, template <typename, typename> typename SelectedCompression, compression_category Category>
+class accessor<DataT, Dims, Mode, Target, compressed<SelectedCompression<Intype, DataT>, Category>>
     : public accessor<DataT, Dims, Mode, Target, compression::uncompressed> {
   public:
 	using base = accessor<DataT, Dims, Mode, Target, compression::uncompressed>;
 	using compression = SelectedCompression<Intype, DataT>;
 	using compressed_type = typename compression::quant_type;
 	using value_type = typename compression::value_type;
-	using retval = std::conditional_t<detail::is_producer_mode(Mode), uncompressed_wrapper<Intype, DataT, SelectedCompression>,
-	    const uncompressed_wrapper_const<Intype, DataT, SelectedCompression>>;
+	using retval = std::conditional_t<detail::is_producer_mode(Mode), uncompressed_wrapper<Intype, DataT, SelectedCompression, Category>,
+	    const uncompressed_wrapper_const<Intype, DataT, SelectedCompression, Category>>;
 
 	template <typename T, int D, typename Functor, access_mode ModeNoInit>
-	accessor(buffer<T, D, compressed<compression>>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag)
+	accessor(buffer<T, D, compressed<compression, Category>>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag)
 	    : base(buff, cgh, rmfn, tag), m_compression(buff.get_compression()) {}
 
 	template <typename T, int D, typename Functor, access_mode TagMode>
-	accessor(buffer<T, D, compressed<compression>>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<TagMode, Mode, Target> tag,
+	accessor(buffer<T, D, compressed<compression, Category>>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<TagMode, Mode, Target> tag,
 	    const property::no_init& prop)
 	    : base(buff, cgh, rmfn, tag, prop), m_compression(buff.get_compression()) {}
 
 
 	template <typename T, int D, access_mode TagMode, access_mode TagModeNoInit>
-	accessor(buffer<DataT, Dims, compressed<compression>>& buff, handler& cgh, const detail::access_tag<TagMode, TagModeNoInit, Target> tag,
+	accessor(buffer<DataT, Dims, compressed<compression, Category>>& buff, handler& cgh, const detail::access_tag<TagMode, TagModeNoInit, Target> tag,
 	    const property_list& prop_list)
 	    : base(buff, cgh, access::all(), tag, prop_list), m_compression(buff.get_compression()) {}
 
@@ -313,22 +327,22 @@ class accessor<DataT, Dims, Mode, Target, compressed<SelectedCompression<Intype,
 	}
 
   private:
-	compressed<compression> m_compression;
+	compressed<compression, Category> m_compression;
 };
 
 template <typename DataT, int Dims, typename Intype, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target,
-    template <typename, typename> typename SelectedCompression>
-accessor(const buffer<Intype, Dims, compressed<SelectedCompression<Intype, DataT>>>& buff, handler& cgh, const Functor& rmfn,
-    const detail::access_tag<Mode, ModeNoInit, Target> tag) -> accessor<DataT, Dims, Mode, Target, compressed<SelectedCompression<Intype, DataT>>>;
+    template <typename, typename> typename SelectedCompression, compression_category Category>
+accessor(const buffer<Intype, Dims, compressed<SelectedCompression<Intype, DataT>, Category>>& buff, handler& cgh, const Functor& rmfn,
+    const detail::access_tag<Mode, ModeNoInit, Target> tag) -> accessor<DataT, Dims, Mode, Target, compressed<SelectedCompression<Intype, DataT>, Category>>;
 
 template <typename DataT, int Dims, typename Intype, typename Functor, access_mode Mode, access_mode TagMode, target Target,
-    template <typename, typename> typename SelectedCompression>
-accessor(const buffer<Intype, Dims, compressed<SelectedCompression<Intype, DataT>>>& buff, handler& cgh, const Functor& rmfn,
+    template <typename, typename> typename SelectedCompression, compression_category Category>
+accessor(const buffer<Intype, Dims, compressed<SelectedCompression<Intype, DataT>, Category>>& buff, handler& cgh, const Functor& rmfn,
     const detail::access_tag<TagMode, Mode, Target> tag,
-    const property::no_init& prop) -> accessor<DataT, Dims, Mode, Target, compressed<SelectedCompression<Intype, DataT>>>;
+    const property::no_init& prop) -> accessor<DataT, Dims, Mode, Target, compressed<SelectedCompression<Intype, DataT>, Category>>;
 
 template <typename DataT, int Dims, typename Intype, access_mode TagMode, access_mode TagModeNoInit, target Target,
-    template <typename, typename> typename SelectedCompression>
-accessor(buffer<Intype, Dims, compressed<SelectedCompression<Intype, DataT>>>& buff, handler& cgh, const detail::access_tag<TagMode, TagModeNoInit, Target> tag,
-    const property_list& prop_list) -> accessor<DataT, Dims, TagModeNoInit, Target, compressed<SelectedCompression<Intype, DataT>>>;
+    template <typename, typename> typename SelectedCompression, compression_category Category>
+accessor(buffer<Intype, Dims, compressed<SelectedCompression<Intype, DataT>, Category>>& buff, handler& cgh, const detail::access_tag<TagMode, TagModeNoInit, Target> tag,
+    const property_list& prop_list) -> accessor<DataT, Dims, TagModeNoInit, Target, compressed<SelectedCompression<Intype, DataT>, Category>>;
 } // namespace celerity

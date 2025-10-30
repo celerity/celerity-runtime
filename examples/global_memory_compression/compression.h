@@ -27,8 +27,8 @@
 // 2) Other ideas?
 
 namespace celerity {
-template <typename T, typename Q>
-class compressed<celerity::compression::point_cloud<T, Q>> {
+template <typename T, typename Q, compression_category Category>
+class compressed<celerity::compression::point_cloud<T, Q>, Category> {
 	using compression_type = typename celerity::compression::point_cloud<T, Q>::compression_type;
 	using value_type = typename celerity::compression::point_cloud<T, Q>::value_type;
 
@@ -432,13 +432,13 @@ struct local_accessor_compressor {
 };
 
 // buffer specialization compressed buffer initialization
-template <typename DataT, int Dims, typename Intype>
-class buffer<Intype, Dims, compressed<celerity::compression::point_cloud<Intype, DataT>>> : public buffer<DataT, Dims, compression::uncompressed> {
+template <typename DataT, int Dims, typename Intype, compression_category Category>
+class buffer<Intype, Dims, compressed<celerity::compression::point_cloud<Intype, DataT>, Category>> : public buffer<DataT, Dims, compression::uncompressed> {
   public:
 	using base = buffer<DataT, Dims, compression::uncompressed>;
 	using compression = celerity::compression::point_cloud<Intype, DataT>;
 
-	buffer(const Intype* data, range<Dims> range, compressed<compression>& compression)
+	buffer(const Intype* data, range<Dims> range, compressed<compression, Category>& compression)
 	    : buffer(std::move(compression.compress_data(data, range.size())), range, compression), global_index({range.get(0), range.get(1), 1}),
 	      device_local_buffer(range.get(2) * range.get(0) * range.get(1)), decompression_interface({range.get(0), range.get(1), 1}) {
 		celerity::debug::set_buffer_name(global_index, "global_index");
@@ -446,7 +446,7 @@ class buffer<Intype, Dims, compressed<celerity::compression::point_cloud<Intype,
 		// decompression_interface.fill(0);
 	}
 
-	buffer(range<Dims> range, compressed<compression>& compression)
+	buffer(range<Dims> range, compressed<compression, Category>& compression)
 	    : base(range), global_index({range.get(0), range.get(1), 1}), device_local_buffer((range.get(2) + 2) * (range.get(0) + 2) * (range.get(1) + 2)),
 	      decompression_interface({range.get(0) + 2, range.get(1) + 2, 1}), m_compression(compression) {
 		celerity::debug::set_buffer_name(global_index, "global_index");
@@ -469,54 +469,21 @@ class buffer<Intype, Dims, compressed<celerity::compression::point_cloud<Intype,
 		});
 	}
 
-	const compressed<compression>& get_compression() const { return m_compression; }
+	const compressed<compression, Category>& get_compression() const { return m_compression; }
 
 	celerity::buffer<Intype, Dims> global_index;
 	celerity::buffer<Intype, 1> device_local_buffer;
 	celerity::buffer<int32_t, 3> decompression_interface;
 
   private:
-	buffer(std::vector<DataT>&& data, range<Dims> range, compressed<compression>& compression)
+	buffer(std::vector<DataT>&& data, range<Dims> range, compressed<compression, Category>& compression)
 	    : base(data.data(), range), m_data(std::move(data)), m_compression(compression), global_index({range[0], range[1]}) {}
 
 	std::vector<DataT> m_data;
 
-	compressed<compression> m_compression;
+	compressed<compression, Category> m_compression;
 };
 
-// make a range mapper for 3D kernel range to 1D buffer
-template <int BufferDims>
-struct three_d_to_one_d {
-	static_assert(BufferDims == 1, "BufferDims must be 1 for three_d_to_one_d");
-
-	template <int KernelDims>
-	celerity::subrange<BufferDims> operator()(const celerity::chunk<KernelDims>& chnk, const celerity::range<BufferDims>& buffer_size) const {
-		celerity::subrange<BufferDims> sbr;
-		// Flatten the 3D chunk into a 1D range
-		sbr.offset[0] = chnk.offset[0] * chnk.range[1] * chnk.range[2] + chnk.offset[1] * chnk.range[2] + chnk.offset[2];
-		sbr.range[0] = chnk.range[0] * chnk.range[1] * chnk.range[2];
-		return sbr;
-	}
-};
-
-struct one_d_neighborhood {
-	explicit one_d_neighborhood(const size_t neighborhood_radius) : m_neighborhood_radius(neighborhood_radius) {}
-
-	template <int KernelDims>
-	celerity::detail::region<1> operator()(const celerity::chunk<KernelDims>& chnk, const celerity::range<1>& buffer_size) const {
-		size_t start = (chnk.offset[0] > m_neighborhood_radius) ? chnk.offset[0] - m_neighborhood_radius : 0;
-		size_t end = chnk.offset[0] + chnk.range[0] + m_neighborhood_radius;
-
-		celerity::subrange<1> result;
-		result.offset[0] = start;
-		result.range[0] = end - start;
-
-		return result;
-	}
-
-  private:
-	size_t m_neighborhood_radius;
-};
 
 template <int MainBufferDims>
 struct first_range_mapper_to_ranges {
@@ -571,8 +538,8 @@ struct range_mapper_to_map_ranges {
 	const celerity::range<MainBufferDims> m_buffer_size;
 };
 
-template <typename DataT, int Dims, typename Intype, access_mode Mode>
-class accessor<DataT, Dims, Mode, target::device, compressed<celerity::compression::point_cloud<Intype, DataT>>>
+template <typename DataT, int Dims, typename Intype, access_mode Mode, compression_category Category>
+class accessor<DataT, Dims, Mode, target::device, compressed<celerity::compression::point_cloud<Intype, DataT>, Category>>
     : public accessor<DataT, Dims, Mode, target::device, compression::uncompressed> {
   public:
 	using base = accessor<DataT, Dims, Mode, target::device, compression::uncompressed>;
@@ -581,7 +548,7 @@ class accessor<DataT, Dims, Mode, target::device, compressed<celerity::compressi
 	using value_type = typename compression::value_type;
 
 	template <typename T, int D, typename Functor, access_mode ModeNoInit>
-	accessor(buffer<T, D, compressed<compression>>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, target::device> tag)
+	accessor(buffer<T, D, compressed<compression, Category>>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, target::device> tag)
 	    : base(buff, cgh, rmfn, tag), m_global_offset(buff.global_index, cgh, rmfn, tag), m_compression(buff.get_compression()),
 	      m_local_accessor(buff.device_local_buffer, cgh, range_mapper_to_map_ranges{rmfn, first_range_mapper_to_ranges<D>{buff.get_range()}, buff.get_range()},
 	          celerity::read_write, celerity::no_init),
@@ -589,7 +556,7 @@ class accessor<DataT, Dims, Mode, target::device, compressed<celerity::compressi
 	      m_local_decompression_interface_local({1}, cgh), m_points_per_tile(buff.get_range().get(2)) {}
 
 	template <typename T, int D, typename Functor, access_mode TagMode>
-	accessor(buffer<T, D, compressed<compression>>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<TagMode, Mode, target::device> tag,
+	accessor(buffer<T, D, compressed<compression, Category>>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<TagMode, Mode, target::device> tag,
 	    const property::no_init& prop)
 	    : base(buff, cgh, rmfn, tag, prop), m_global_offset(buff.global_index, cgh, rmfn, tag, prop), m_compression(buff.get_compression()),
 	      m_local_accessor(buff.device_local_buffer, cgh, range_mapper_to_map_ranges{rmfn, first_range_mapper_to_ranges<D>{buff.get_range()}, buff.get_range()},
@@ -598,7 +565,7 @@ class accessor<DataT, Dims, Mode, target::device, compressed<celerity::compressi
 	      m_local_decompression_interface_local({1}, cgh), m_points_per_tile(buff.get_range().get(2)) {}
 
 	template <typename T, int D, access_mode TagMode, access_mode TagModeNoInit>
-	accessor(buffer<DataT, Dims, compressed<compression>>& buff, handler& cgh, const detail::access_tag<TagMode, TagModeNoInit, target::device> tag,
+	accessor(buffer<DataT, Dims, compressed<compression, Category>>& buff, handler& cgh, const detail::access_tag<TagMode, TagModeNoInit, target::device> tag,
 	    const property_list& prop_list)
 	    : base(buff, cgh, access::all(), tag, prop_list), m_global_offset(buff.global_index, cgh, celerity::access::all{}, tag, prop_list),
 	      m_compression(buff.get_compression()),
@@ -621,7 +588,7 @@ class accessor<DataT, Dims, Mode, target::device, compressed<celerity::compressi
 
   private:
 	celerity::accessor<Intype, Dims, Mode, target::device> m_global_offset;
-	compressed<compression> m_compression;
+	compressed<compression, Category> m_compression;
 
 	celerity::accessor<Intype, 1, celerity::access_mode::discard_read_write, target::device> m_local_accessor;
 	mutable celerity::accessor<int32_t, 3, celerity::access_mode::discard_read_write, target::device> m_local_decompression_interface;
@@ -630,8 +597,8 @@ class accessor<DataT, Dims, Mode, target::device, compressed<celerity::compressi
 	const int m_points_per_tile;
 };
 
-template <typename DataT, int Dims, typename Intype, access_mode Mode>
-class accessor<DataT, Dims, Mode, target::host_task, compressed<celerity::compression::point_cloud<Intype, DataT>>>
+template <typename DataT, int Dims, typename Intype, access_mode Mode, compression_category Category>
+class accessor<DataT, Dims, Mode, target::host_task, compressed<celerity::compression::point_cloud<Intype, DataT>, Category>>
     : public accessor<DataT, Dims, Mode, target::host_task, compression::uncompressed> {
   public:
 	using base = accessor<DataT, Dims, Mode, target::host_task, compression::uncompressed>;
@@ -640,18 +607,18 @@ class accessor<DataT, Dims, Mode, target::host_task, compressed<celerity::compre
 	using value_type = typename compression::value_type;
 
 	template <typename T, int D, typename Functor, access_mode ModeNoInit>
-	accessor(buffer<T, D, compressed<compression>>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, target::host_task> tag)
+	accessor(buffer<T, D, compressed<compression, Category>>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, target::host_task> tag)
 	    : base(buff, cgh, rmfn, tag), m_global_offset(buff.global_index, cgh, rmfn, tag), m_compression(buff.get_compression()),
 	      m_points_per_tile(buff.get_range().get(2)) {}
 
 	template <typename T, int D, typename Functor, access_mode TagMode>
-	accessor(buffer<T, D, compressed<compression>>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<TagMode, Mode, target::host_task> tag,
+	accessor(buffer<T, D, compressed<compression, Category>>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<TagMode, Mode, target::host_task> tag,
 	    const property::no_init& prop)
 	    : base(buff, cgh, rmfn, tag, prop), m_global_offset(buff.global_index, cgh, rmfn, tag, prop), m_compression(buff.get_compression()),
 	      m_points_per_tile(buff.get_range().get(2)) {}
 
 	template <typename T, int D, access_mode TagMode, access_mode TagModeNoInit>
-	accessor(buffer<DataT, Dims, compressed<compression>>& buff, handler& cgh, const detail::access_tag<TagMode, TagModeNoInit, target::host_task> tag,
+	accessor(buffer<DataT, Dims, compressed<compression, Category>>& buff, handler& cgh, const detail::access_tag<TagMode, TagModeNoInit, target::host_task> tag,
 	    const property_list& prop_list)
 	    : base(buff, cgh, access::all(), tag, prop_list), m_global_offset(buff.global_index, cgh, celerity::access::all{}, tag, prop_list),
 	      m_compression(buff.get_compression()), m_points_per_tile(buff.get_range().get(2)) {}
@@ -666,7 +633,7 @@ class accessor<DataT, Dims, Mode, target::host_task, compressed<celerity::compre
 
   private:
 	celerity::accessor<Intype, Dims, Mode, target::host_task> m_global_offset;
-	compressed<compression> m_compression;
+	compressed<compression, Category> m_compression;
 	int m_points_per_tile;
 };
 } // namespace celerity

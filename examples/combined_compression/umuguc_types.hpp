@@ -25,9 +25,33 @@ struct point_cloud {
 };
 } // namespace celerity::compression
 
+// template <typename T>
+// struct compression_category_extractor {
+// 	static constexpr celerity::compression_category value = celerity::compression_category::none; // default
+// };
+
+// template <typename Algorithm, celerity::compression_category Category>
+// struct compression_category_extractor<celerity::compressed<Algorithm, Category>> {
+// 	static constexpr celerity::compression_category value = Category;
+// };
+
+// // If given a celerity::accessor, delegate to the accessor's Compression parameter
+// template <typename DataT, int Dims, celerity::access_mode Mode, celerity::target Target, typename Comp>
+// struct compression_category_extractor<celerity::accessor<DataT, Dims, Mode, Target, Comp>> {
+// 	static constexpr celerity::compression_category value = compression_category_extractor<Comp>::value;
+// };
+
+// // If given a celerity::buffer<T, N, Compression> also delegate (optional)
+// template <typename DataT, int Dims, typename Comp>
+// struct compression_category_extractor<celerity::buffer<DataT, Dims, Comp>> {
+// 	static constexpr celerity::compression_category value = compression_category_extractor<Comp>::value;
+// };
+
 // -- Compression types --
+constexpr celerity::compression_category compression_method = celerity::compression_category::global_memory;
+
 using compression_type = celerity::compressed<celerity::compression::quantization<Point, sycl::vec<uint8_t, 3>>, celerity::compression_category::element_wise>;
-using compression_tile_type = celerity::compressed<celerity::compression::point_cloud<Point, CompressedPoint>, celerity::compression_category::global_memory>;
+using compression_tile_type = celerity::compressed<celerity::compression::point_cloud<Point, CompressedPoint>, compression_method>;
 
 // --- Range mappers ---
 

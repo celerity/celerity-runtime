@@ -21,6 +21,7 @@ function(add_example NAME)
   endif()
 endfunction()
 
+add_example(combined_compression)
 add_example(convolution)
 add_example(hello_world)
 add_example(matmul)

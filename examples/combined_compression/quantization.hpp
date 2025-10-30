@@ -3,11 +3,13 @@
 #include <celerity.h>
 
 #include "./compression_utils.hpp"
+#include "umuguc_types.hpp"
 // #include "./direct_compression.hpp"
 
 namespace celerity {
 template <typename T, typename Q, compression_category Category>
 class compressed<celerity::compression::quantization<T, Q>, Category> {
+  private:
 	using quant_type = typename celerity::compression::quantization<T, Q>::quant_type;
 	using value_type = typename celerity::compression::quantization<T, Q>::value_type;
 
