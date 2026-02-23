@@ -23,7 +23,7 @@ msgid = MSG34
 id = [1, 2, 3]
 range = [1, 2, 3]
 subrange = [1, 2, 3] + [4, 5, 6]
-chunk = {offset = [1, 2, 3], range = [4, 5, 6], global_size = [7, 8, 9]}
+chunk = {offset = [1, 2, 3], range = [4, 5, 6], global_size = [7, 8, 9], local_range = [10, 11, 12]}
 nd_range = {global_range = [2, 4, 6], local_range = [1, 2, 3], offset = [7, 8, 9]}
 box = [1, 2, 3] - [4, 5, 6]
 empty_region = {}

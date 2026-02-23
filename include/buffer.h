@@ -10,7 +10,11 @@
 
 namespace celerity {
 
-template <typename DataT, int Dims = 1>
+namespace compression {
+	struct uncompressed;
+}
+
+template <typename DataT, int Dims = 1, typename Compression = compression::uncompressed>
 class buffer;
 
 }
@@ -39,10 +43,10 @@ std::string get_buffer_name(const celerity::buffer<DataT, Dims>& buff) {
 
 namespace celerity {
 
-template <typename DataT, int Dims, access_mode Mode, target Target>
+template <typename DataT, int Dims, access_mode Mode, target Target, typename Compression>
 class accessor;
 
-template <typename DataT, int Dims>
+template <typename DataT, int Dims, typename Compression>
 class buffer {
   public:
 	static_assert(Dims <= 3);
@@ -58,34 +62,35 @@ class buffer {
 	buffer(const DataT& value) : buffer(&value, {}) {}
 
 	template <access_mode Mode, typename Functor, int D = Dims, std::enable_if_t<(D > 0), int> = 0>
-	accessor<DataT, Dims, Mode, target::device> get_access(handler& cgh, Functor rmfn) {
+	accessor<DataT, Dims, Mode, target::device, Compression> get_access(handler& cgh, Functor rmfn) {
 		return get_access<Mode, target::device, Functor>(cgh, rmfn);
 	}
 
 	template <access_mode Mode, typename Functor, int D = Dims, std::enable_if_t<D == 0, int> = 0>
-	accessor<DataT, Dims, Mode, target::device> get_access(handler& cgh) {
+	accessor<DataT, Dims, Mode, target::device, Compression> get_access(handler& cgh) {
 		return get_access<Mode, target::device, Functor>(cgh);
 	}
 
 	template <access_mode Mode, target Target, typename Functor, int D = Dims, std::enable_if_t<(D > 0), int> = 0>
-	accessor<DataT, Dims, Mode, Target> get_access(handler& cgh, Functor rmfn) {
-		return accessor<DataT, Dims, Mode, Target>(*this, cgh, rmfn);
+	accessor<DataT, Dims, Mode, Target, Compression> get_access(handler& cgh, Functor rmfn) {
+		return accessor<DataT, Dims, Mode, Target, Compression>(*this, cgh, rmfn);
 	}
 
 	template <access_mode Mode, target Target, typename Functor, int D = Dims, std::enable_if_t<D == 0, int> = 0>
-	accessor<DataT, Dims, Mode, Target> get_access(handler& cgh) {
-		return accessor<DataT, Dims, Mode, Target>(*this, cgh);
+	accessor<DataT, Dims, Mode, Target, Compression> get_access(handler& cgh) {
+		return accessor<DataT, Dims, Mode, Target, Compression>(*this, cgh);
 	}
 
 	template <access_mode Mode, typename Functor, int D = Dims, std::enable_if_t<(D > 0), int> = 0>
-	[[deprecated("Calling get_access on a const buffer is deprecated")]] accessor<DataT, Dims, Mode, target::device> get_access(
+	[[deprecated("Calling get_access on a const buffer is deprecated")]] accessor<DataT, Dims, Mode, target::device, Compression> get_access(
 	    handler& cgh, Functor rmfn) const {
 		return get_access<Mode, target::device, Functor>(cgh, rmfn);
 	}
 
 	template <access_mode Mode, target Target, typename Functor, int D = Dims, std::enable_if_t<(D > 0), int> = 0>
-	[[deprecated("Calling get_access on a const buffer is deprecated")]] accessor<DataT, Dims, Mode, Target> get_access(handler& cgh, Functor rmfn) const {
-		return accessor<DataT, Dims, Mode, Target>(*this, cgh, rmfn);
+	[[deprecated("Calling get_access on a const buffer is deprecated")]] accessor<DataT, Dims, Mode, Target, Compression> get_access(
+	    handler& cgh, Functor rmfn) const {
+		return accessor<DataT, Dims, Mode, Target, Compression>(*this, cgh, rmfn);
 	}
 
 	const range<Dims>& get_range() const {
@@ -140,3 +145,5 @@ class buffer {
 };
 
 } // namespace celerity
+
+#include "compression.h"

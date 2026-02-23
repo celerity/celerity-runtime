@@ -124,6 +124,12 @@ namespace detail {
 
 	struct range_mapper_testspy;
 
+	enum class range_mapper_type;
+
+	// TODO: This is just for R&D
+	template <int Dims, detail::range_mapper_type Kind>
+	struct static_range_mapper_data;
+
 } // namespace detail
 
 
@@ -154,6 +160,10 @@ namespace access {
 		}
 
 	  private:
+		// TODO: This is just for R&D
+		template <int Dim, celerity::detail::range_mapper_type Kind>
+		friend struct celerity::detail::static_range_mapper_data;
+
 		subrange<BufferDims> m_sr;
 	};
 
@@ -169,6 +179,10 @@ namespace access {
 		}
 
 	  private:
+		// TODO: This is just for R&D
+		template <int Dim, celerity::detail::range_mapper_type Kind>
+		friend struct celerity::detail::static_range_mapper_data;
+
 		size_t m_dim_idx;
 	};
 
@@ -229,6 +243,10 @@ namespace access {
 
 	  private:
 		friend struct celerity::detail::range_mapper_testspy;
+
+		// TODO: This is just for R&D
+		template <int Dim, celerity::detail::range_mapper_type Kind>
+		friend struct celerity::detail::static_range_mapper_data;
 
 		range<Dims> m_extent;
 		neighborhood_shape m_shape;

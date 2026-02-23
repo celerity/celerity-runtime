@@ -44,7 +44,8 @@ buffer_access_map::buffer_access_map(std::vector<buffer_access>&& accesses, cons
 	for(size_t i = 0; i < m_accesses.size(); ++i) {
 		const auto& [bid, mode, rm] = m_accesses[i];
 		m_accessed_buffers.insert(bid);
-		const auto req = apply_range_mapper(rm.get(), chunk<3>{geometry.global_offset, geometry.global_size, geometry.global_size}, geometry.dimensions);
+		const auto req = apply_range_mapper(
+		    rm.get(), chunk<3>{geometry.global_offset, geometry.global_size, geometry.global_size, geometry.granularity}, geometry.dimensions);
 		auto& cons = consumed_regions[bid]; // allow default-insert
 		auto& prod = produced_regions[bid]; // allow default-insert
 		if(is_consumer_mode(mode)) { cons.add(req); }
@@ -60,7 +61,8 @@ buffer_access_map::buffer_access_map(std::vector<buffer_access>&& accesses, cons
 
 region<3> buffer_access_map::get_requirements_for_nth_access(const size_t n, const box<3>& execution_range) const {
 	const auto sr = execution_range.get_subrange();
-	return apply_range_mapper(m_accesses[n].range_mapper.get(), chunk<3>{sr.offset, sr.range, m_task_geometry.global_size}, m_task_geometry.dimensions);
+	return apply_range_mapper(
+	    m_accesses[n].range_mapper.get(), chunk<3>{sr.offset, sr.range, m_task_geometry.global_size, m_task_geometry.granularity}, m_task_geometry.dimensions);
 }
 
 region<3> buffer_access_map::compute_consumed_region(const buffer_id bid, const box<3>& execution_range) const {

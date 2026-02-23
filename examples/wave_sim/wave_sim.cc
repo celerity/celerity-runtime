@@ -158,6 +158,11 @@ int main(int argc, char* argv[]) {
 
 	auto t = 0.0;
 	size_t i = 0;
+
+	queue.wait(celerity::experimental::barrier);
+	// time loop
+	std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+
 	while(t < cfg.T) {
 		update(queue, up, u, cfg.dt, {cfg.dx, cfg.dy});
 		if(cfg.output_sample_rate > 0) {
@@ -166,6 +171,12 @@ int main(int argc, char* argv[]) {
 		std::swap(u, up);
 		t += cfg.dt;
 	}
+
+	queue.wait(celerity::experimental::barrier);
+
+	std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+
+	std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << " ms" << std::endl;
 
 	if(cfg.output_sample_rate > 0) { stream_close(queue, os); }
 

@@ -220,4 +220,112 @@ TEST_CASE("for_each_item behaves as expected", "[host_utils]") {
 	}
 }
 
+TEST_CASE("linearize and delinearize are inverse operations", "[range]") {
+	SECTION("0-dimensional") {
+		const range<0> r;
+		const id<0> idx;
+		CHECK(get_linear_index(r, idx) == 0);
+		CHECK(get_nd_index<0>(0, r) == idx);
+	}
+
+	SECTION("1-dimensional") {
+		auto r = range<1>{10};
+
+		CHECK(get_linear_index(r, id<1>{0}) == 0);
+		CHECK(get_linear_index(r, id<1>{9}) == 9);
+		CHECK(get_linear_index(r, id<1>{5}) == 5);
+
+		// roundtrip for all elements
+		for(size_t i = 0; i < r[0]; ++i) {
+			const id<1> idx{i};
+			const auto linear = get_linear_index(r, idx);
+			CHECK(get_nd_index<1>(linear, r) == idx);
+		}
+	}
+
+	SECTION("2-dimensional") {
+		auto r = range<2>{4, 7};
+
+		CHECK(get_linear_index(r, id<2>{0, 0}) == 0);
+		CHECK(get_linear_index(r, id<2>{3, 6}) == 3 * 7 + 6);
+		CHECK(get_linear_index(r, id<2>{2, 3}) == 2 * 7 + 3);
+
+		for(size_t i = 0; i < r[0]; ++i) {
+			for(size_t j = 0; j < r[1]; ++j) {
+				const id<2> idx{i, j};
+				const auto linear = get_linear_index(r, idx);
+				CHECK(get_nd_index<2>(linear, r) == idx);
+			}
+		}
+	}
+
+	SECTION("3-dimensional") {
+		auto r = range<3>{3, 5, 4};
+
+		CHECK(get_linear_index(r, id<3>{0, 0, 0}) == 0);
+		CHECK(get_linear_index(r, id<3>{2, 4, 3}) == 2 * 5 * 4 + 4 * 4 + 3);
+		CHECK(get_linear_index(r, id<3>{1, 2, 3}) == 1 * 5 * 4 + 2 * 4 + 3);
+
+		for(size_t i = 0; i < r[0]; ++i) {
+			for(size_t j = 0; j < r[1]; ++j) {
+				for(size_t k = 0; k < r[2]; ++k) {
+					const id<3> idx{i, j, k};
+					const auto linear = get_linear_index(r, idx);
+					CHECK(get_nd_index<3>(linear, r) == idx);
+				}
+			}
+		}
+	}
+
+	SECTION("linearization produces contiguous indices") {
+		auto r = range<3>{2, 3, 4};
+		const size_t total = r[0] * r[1] * r[2];
+		std::vector<size_t> seen(total, 0);
+		for(size_t i = 0; i < r[0]; ++i) {
+			for(size_t j = 0; j < r[1]; ++j) {
+				for(size_t k = 0; k < r[2]; ++k) {
+					const auto linear = get_linear_index(r, id<3>{i, j, k});
+					REQUIRE(linear < total);
+					seen[linear]++;
+				}
+			}
+		}
+
+		for(size_t i = 0; i < total; ++i) {
+			CHECK(seen[i] == 1);
+		}
+	}
+
+	SECTION("row-major order for 2d") {
+		auto r = range<2>{3, 4};
+
+		for(size_t i = 0; i < r[0]; ++i) {
+			for(size_t j = 0; j + 1 < r[1]; ++j) {
+				CHECK(get_linear_index(r, id<2>{i, j + 1}) == get_linear_index(r, id<2>{i, j}) + 1);
+			}
+		}
+	}
+
+	SECTION("row-major order for 3d") {
+		auto r = range<3>{2, 3, 4};
+
+		for(size_t i = 0; i < r[0]; ++i) {
+			for(size_t j = 0; j < r[1]; ++j) {
+				for(size_t k = 0; k + 1 < r[2]; ++k) {
+					CHECK(get_linear_index(r, id<3>{i, j, k + 1}) == get_linear_index(r, id<3>{i, j, k}) + 1);
+				}
+			}
+		}
+	}
+
+	SECTION("non-square ranges") {
+		auto r = range<3>{1, 1, 100};
+		for(size_t k = 0; k < r[2]; ++k) {
+			const id<3> idx{0, 0, k};
+			CHECK(get_linear_index(r, idx) == k);
+			CHECK(get_nd_index<3>(k, r) == idx);
+		}
+	}
+}
+
 } // namespace celerity::detail

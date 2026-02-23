@@ -4,6 +4,7 @@
 
 #include "accessor.h"
 #include "buffer.h"
+#include "compression_wrapper.h"
 #include "debug.h"
 #include "distr_queue.h"
 #include "host_utils.h"

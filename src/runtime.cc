@@ -128,6 +128,11 @@ namespace detail {
 
 		void flush_scheduler();
 
+		// TODO: FIND a way to make this by far better
+		node_id NOCOMMIT_get_local_nid() const { return m_local_nid; }
+		size_t NOCOMMIT_get_num_nodes() const { return m_num_nodes; }
+		size_t NOCOMMIT_get_num_local_devices() const { return m_num_local_devices; }
+
 	  private:
 		friend struct runtime_testspy;
 
@@ -768,6 +773,10 @@ namespace detail {
 	void runtime::set_scheduler_lookahead(const experimental::lookahead lookahead) { m_impl->set_scheduler_lookahead(lookahead); }
 
 	void runtime::flush_scheduler() { m_impl->flush_scheduler(); }
+
+	node_id runtime::NOCOMMIT_get_local_nid() const { return m_impl->NOCOMMIT_get_local_nid(); }
+	size_t runtime::NOCOMMIT_get_num_nodes() const { return m_impl->NOCOMMIT_get_num_nodes(); }
+	size_t runtime::NOCOMMIT_get_num_local_devices() const { return m_impl->NOCOMMIT_get_num_local_devices(); }
 
 	bool runtime::s_test_mode = false;
 	bool runtime::s_test_active = false;
