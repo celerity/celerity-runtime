@@ -1,0 +1,294 @@
+#include <cstdint>
+#include <fstream>
+#include <iostream>
+#include <vector>
+
+#include <celerity.h>
+#include <compression_wrapper.h>
+
+#include "compression_quant.h"
+
+constexpr uint32_t LOCAL_RANGE_X = 8;
+constexpr uint32_t LOCAL_RANGE_Y = 8;
+
+#define USE_GLOBAL_COMPRESSION
+
+#if defined(USE_LOCAL_COMPRESSION)
+using compression_type_a = celerity::compressed<celerity::compression::quantization<float, float>, celerity::compression_category::local_memory>;
+#elif defined(USE_GLOBAL_COMPRESSION)
+using compression_type_a = celerity::compressed<celerity::compression::quantization<float, float>, celerity::compression_category::global_memory>;
+#else
+#error "Please define either USE_LOCAL_COMPRESSION or USE_GLOBAL_COMPRESSION"
+#endif
+
+
+void setup_wave(celerity::queue& queue, celerity::buffer<float, 2, compression_type_a> u, sycl::float2 center, float amplitude, sycl::float2 sigma) {
+	queue.submit([&](celerity::handler& cgh) {
+		celerity::accessor dw_u{u, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
+#if defined(USE_LOCAL_COMPRESSION)
+		celerity::local_accessor<float, 1> local_u({(LOCAL_RANGE_X + 4) * (LOCAL_RANGE_Y + 4)}, cgh); // TODO: THIS IS HARDCODED
+#endif
+		const auto range = u.get_range();
+		const celerity::range<2> local_range{LOCAL_RANGE_X, LOCAL_RANGE_Y};
+		const celerity::range<2> global_range{
+		    (range[0] + LOCAL_RANGE_X - 1) / LOCAL_RANGE_X * LOCAL_RANGE_X, (range[1] + LOCAL_RANGE_Y - 1) / LOCAL_RANGE_Y * LOCAL_RANGE_Y};
+		cgh.parallel_for<class setup_wave>(
+		    celerity::nd_range<2>(global_range, local_range), [=, c = center, a = amplitude, s = sigma](celerity::nd_item<2> item) {
+#if defined(USE_LOCAL_COMPRESSION)
+			    auto alloc = make_local_allocator<float>((local_range[0] + 2) * (local_range[1] + 2), local_u); // TODO: THIS IS HARDCODED
+
+			    auto zero_comp = dw_u.decompress_data(item, range, local_range, alloc, {0, 0});
+#elif defined(USE_GLOBAL_COMPRESSION)
+			    auto zero_comp = dw_u.decompress_data(item, range, global_range, {0, 0});
+#endif
+			    const auto id = item.get_global_id();
+			    if(id[0] < range[0] && id[1] < range[1]) {
+				    const float dx = id[1] - c.x();
+				    const float dy = id[0] - c.y();
+				    zero_comp[id] = a * sycl::exp(-((dx * dx / (2.f * s.x() * s.x())) + (dy * dy / (2.f * s.y() * s.y()))));
+			    }
+		    });
+	});
+}
+
+void zero(celerity::queue& queue, celerity::buffer<float, 2, compression_type_a> buf) {
+	queue.submit([&](celerity::handler& cgh) {
+		celerity::accessor dw_buf{buf, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
+#if defined(USE_LOCAL_COMPRESSION)
+		celerity::local_accessor<float, 1> local_u({(LOCAL_RANGE_X + 4) * (LOCAL_RANGE_Y + 4)}, cgh); // TODO: THIS IS HARDCODED
+#endif
+		const auto range = buf.get_range();
+		const celerity::range<2> local_range{LOCAL_RANGE_X, LOCAL_RANGE_Y};
+		const celerity::range<2> global_range{
+		    (range[0], range[1] + LOCAL_RANGE_Y - 1) / LOCAL_RANGE_Y * LOCAL_RANGE_Y, (range[1] + LOCAL_RANGE_Y - 1) / LOCAL_RANGE_Y * LOCAL_RANGE_Y};
+		cgh.parallel_for<class zero>(celerity::nd_range<2>(global_range, local_range), [=](celerity::nd_item<2> item) {
+#if defined(USE_LOCAL_COMPRESSION)
+			auto alloc = make_local_allocator<float>((local_range[0] + 2) * (local_range[1] + 2), local_u); // TODO: THIS IS HARDCODED
+			auto zero_comp = dw_buf.decompress_data(item, range, local_range, alloc, {0, 0});
+#elif defined(USE_GLOBAL_COMPRESSION)
+			auto zero_comp = dw_buf.decompress_data(item, range, global_range, {0, 0});
+#endif
+			const auto id = item.get_global_id();
+			if(id[0] < range[0] && id[1] < range[1]) { zero_comp[id] = 0.f; }
+		});
+	});
+}
+
+struct init_config {
+	static constexpr float a = 0.5f;
+	static constexpr float b = 0.0f;
+	static constexpr float c = 0.5f;
+};
+
+struct update_config {
+	static constexpr float a = 1.f;
+	static constexpr float b = 1.f;
+	static constexpr float c = 1.f;
+};
+
+template <typename T, typename Config, typename KernelName>
+void step(celerity::queue& queue, celerity::buffer<T, 2, compression_type_a> up, celerity::buffer<T, 2, compression_type_a> u, float dt, sycl::float2 delta) {
+	queue.submit([&](celerity::handler& cgh) {
+		celerity::accessor rw_up{up, cgh, celerity::access::one_to_one{}, celerity::read_write};
+		celerity::accessor r_u{u, cgh, celerity::access::neighborhood{{1, 1}, celerity::neighborhood_shape::along_axes}, celerity::read_only};
+#if defined(USE_LOCAL_COMPRESSION)
+		celerity::local_accessor<float, 1> local_u({1000}, cgh); // TODO: THIS IS HARDCODED
+#endif
+
+		const auto range = up.get_range();
+		const celerity::range<2> local_range{LOCAL_RANGE_X, LOCAL_RANGE_Y};
+		const celerity::range<2> global_range{
+		    (range[0] + LOCAL_RANGE_X - 1) / LOCAL_RANGE_X * LOCAL_RANGE_X, (range[1] + LOCAL_RANGE_Y - 1) / LOCAL_RANGE_Y * LOCAL_RANGE_Y};
+
+		cgh.parallel_for<KernelName>(celerity::nd_range<2>(global_range, local_range), [=](celerity::nd_item<2> item) {
+#if defined(USE_LOCAL_COMPRESSION)
+			auto alloc = make_local_allocator<float>(1000, local_u); // TODO: THIS IS HARDCODED
+			auto rw_comp = rw_up.decompress_data(item, range, local_range, alloc, {0, 0});
+			auto r_comp = r_u.decompress_data(item, range, {local_range[0] + 2, local_range[1] + 2}, alloc, {1, 1});
+#elif defined(USE_GLOBAL_COMPRESSION)
+			auto rw_comp = rw_up.decompress_data(item, range, global_range, {0, 0});
+			auto r_comp = r_u.decompress_data(item, range, global_range, {0, 0});
+#endif
+			// TODO: DISCUSS LAZY DECOMPRESSION FOR STENCIL VALUES
+			const auto id = item.get_global_id();
+			if(id[0] < range[0] && id[1] < range[1]) {
+				const size_t py = id[0] < range[0] - 1 ? id[0] + 1 : id[0];
+				const size_t my = id[0] > 0 ? id[0] - 1 : id[0];
+				const size_t px = id[1] < range[1] - 1 ? id[1] + 1 : id[1];
+				const size_t mx = id[1] > 0 ? id[1] - 1 : id[1];
+
+				const float lap = (dt / delta.y()) * (dt / delta.y()) * ((r_comp[{py, id[1]}] - r_comp[id]) - (r_comp[id] - r_comp[{my, id[1]}]))
+				                  + (dt / delta.x()) * (dt / delta.x()) * ((r_comp[{id[0], px}] - r_comp[id]) - (r_comp[id] - r_comp[{id[0], mx}]));
+				rw_comp[id] = Config::a * 2 * r_comp[id] - Config::b * rw_comp[id] + Config::c * lap;
+			}
+		});
+	});
+}
+
+void initialize(
+    celerity::queue& queue, celerity::buffer<float, 2, compression_type_a> up, celerity::buffer<float, 2, compression_type_a> u, float dt, sycl::float2 delta) {
+	step<float, init_config, class initialize>(queue, up, u, dt, delta);
+}
+
+void update(
+    celerity::queue& queue, celerity::buffer<float, 2, compression_type_a> up, celerity::buffer<float, 2, compression_type_a> u, float dt, sycl::float2 delta) {
+	step<float, update_config, class update>(queue, up, u, dt, delta);
+}
+
+void stream_open(celerity::queue& queue, size_t N, size_t num_samples, celerity::experimental::host_object<std::ofstream> os) {
+	queue.submit([&](celerity::handler& cgh) {
+		celerity::experimental::side_effect os_eff{os, cgh};
+		// Using `on_master_node` on all host tasks instead of `once` guarantees that all execute on the same cluster node and access the same file handle
+		cgh.host_task(celerity::on_master_node, [=] {
+			os_eff->open("wave_sim_result.bin", std::ios_base::out | std::ios_base::binary);
+			const struct {
+				uint64_t n, t;
+			} header{N, num_samples};
+			os_eff->write(reinterpret_cast<const char*>(&header), sizeof(header));
+		});
+	});
+}
+
+template <typename T>
+void stream_append(celerity::queue& queue, celerity::buffer<T, 2, compression_type_a> up, celerity::experimental::host_object<std::ofstream> os) {
+	const auto range = up.get_range();
+	queue.submit([&](celerity::handler& cgh) {
+		celerity::accessor up_r{up, cgh, celerity::access::all{}, celerity::read_only_host_task};
+		celerity::experimental::side_effect os_eff{os, cgh};
+		cgh.host_task(celerity::on_master_node, [=] {
+			auto pointer = up_r.decompress_data(range.get(0), range.get(1));
+			os_eff->write(reinterpret_cast<const char*>(pointer.data()), range.size() * sizeof(T));
+		});
+	});
+}
+
+void stream_close(celerity::queue& queue, celerity::experimental::host_object<std::ofstream> os) {
+	queue.submit([&](celerity::handler& cgh) {
+		celerity::experimental::side_effect os_eff{os, cgh};
+		cgh.host_task(celerity::on_master_node, [=] { os_eff->close(); });
+	});
+}
+
+struct wave_sim_config {
+	int N = 512;   // Grid size
+	float T = 100; // Time at end of simulation
+	float dt = 0.25f;
+	float dx = 1.f;
+	float dy = 1.f;
+
+	// "Sample" a frame every X iterations
+	// (0 = don't produce any output)
+	unsigned output_sample_rate = 0;
+};
+
+using arg_vector = std::vector<const char*>;
+
+template <typename ArgFn, typename Result>
+bool get_cli_arg(const arg_vector& args, const arg_vector::const_iterator& it, const std::string& argstr, Result& result, ArgFn fn) {
+	if(argstr == *it) {
+		if(it + 1 == args.cend()) { throw std::runtime_error("Invalid argument"); }
+		result = fn(*(it + 1));
+		return true;
+	}
+	return false;
+}
+
+int main(int argc, char* argv[]) {
+	// Parse command line arguments
+	const wave_sim_config cfg = ([&]() {
+		wave_sim_config result;
+		const arg_vector args{argv + 1, argv + argc};
+		for(auto it = args.cbegin(); it != args.cend(); ++it) {
+			if(get_cli_arg(args, it, "-N", result.N, atoi) || get_cli_arg(args, it, "-T", result.T, atoi) || get_cli_arg(args, it, "--dt", result.dt, atof)
+			    || get_cli_arg(args, it, "--sample-rate", result.output_sample_rate, atoi)) {
+				++it;
+				continue;
+			}
+			std::cerr << "Unknown argument: " << *it << std::endl;
+		}
+		return result;
+	})(); // IIFE
+
+	const size_t num_steps = cfg.T / cfg.dt;
+	// Sample (if enabled) every n-th frame, +1 for initial state
+	const size_t num_samples = cfg.output_sample_rate != 0 ? num_steps / cfg.output_sample_rate + 1 : 0;
+	if(cfg.output_sample_rate != 0 && num_steps % cfg.output_sample_rate != 0) {
+		std::cerr << "Warning: Number of time steps (" << num_steps << ") is not a multiple of the output sample rate (wasted frames)" << std::endl;
+	}
+
+	celerity::queue queue;
+
+	compression_type_a compression_type(-0.5f, 1.0f);
+
+	celerity::buffer<float, 2, compression_type_a> up{celerity::range<2>(cfg.N, cfg.N), compression_type}; // next
+	celerity::debug::set_buffer_name(up, "up");
+	celerity::buffer<float, 2, compression_type_a> u{celerity::range<2>(cfg.N, cfg.N), compression_type}; // current
+	celerity::debug::set_buffer_name(u, "u");
+
+#if defined(USE_GLOBAL_COMPRESSION)
+	up.init(queue);
+	u.init(queue);
+#endif
+
+	std::cout << "Setting up initial wave..." << std::endl;
+	setup_wave(queue, u, {cfg.N / 4.f, cfg.N / 4.f}, 1, {cfg.N / 8.f, cfg.N / 8.f});
+	queue.wait(celerity::experimental::barrier);
+	std::cout << "Zeroing next state buffer..." << std::endl;
+	zero(queue, up);
+	queue.wait(celerity::experimental::barrier);
+	std::cout << "Initializing simulation..." << std::endl;
+#if defined(USE_GLOBAL_COMPRESSION)
+	up.init(queue);
+	u.init(queue);
+#endif
+
+	initialize(queue, up, u, cfg.dt, {cfg.dx, cfg.dy});
+	queue.wait(celerity::experimental::barrier);
+	std::cout << "Initialization complete." << std::endl;
+
+	const celerity::experimental::host_object<std::ofstream> os;
+	if(cfg.output_sample_rate > 0) {
+		stream_open(queue, cfg.N, num_samples, os);
+		stream_append(queue, u, os); // Store initial state
+	}
+
+	auto t = 0.0;
+	size_t i = 0;
+
+	queue.wait(celerity::experimental::barrier);
+	printf("Starting time loop with %zu steps\n", num_steps);
+	// time loop
+	std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+	bool test = true;
+
+	while(t < cfg.T) {
+		if(test) {
+			printf("Time step %zu / %zu (t = %.2f / %.2f) up & u\n", i + 1, num_steps, t + cfg.dt, cfg.T);
+		} else {
+			printf("Time step %zu / %zu (t = %.2f / %.2f) u & up\n", i + 1, num_steps, t + cfg.dt, cfg.T);
+		}
+		test = !test;
+		update(queue, up, u, cfg.dt, {cfg.dx, cfg.dy});
+		if(cfg.output_sample_rate > 0) {
+			if(++i % cfg.output_sample_rate == 0) { stream_append(queue, u, os); }
+		}
+		std::swap(u, up);
+		t += cfg.dt;
+
+		queue.wait(celerity::experimental::barrier);
+	}
+
+	queue.wait(celerity::experimental::barrier);
+
+	std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+
+	std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << " ms" << std::endl;
+
+	if(cfg.output_sample_rate > 0) { stream_close(queue, os); }
+
+	queue.wait(celerity::experimental::barrier);
+
+	std::cout << "Simulation complete." << std::endl;
+
+	return EXIT_SUCCESS;
+}

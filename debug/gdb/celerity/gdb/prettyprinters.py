@@ -101,11 +101,13 @@ class ChunkPrinter:
         self.offset = val['offset']
         self.range = val['range']
         self.global_size = val['global_size']
+        self.local_range = val['local_range']
 
     def children(self) -> Iterable[Tuple[str, gdb.Value]]:
         yield 'offset', self.offset
         yield 'range', self.range
         yield 'global_size', self.global_size
+        yield 'local_range', self.local_range
 
 
 class BoxPrinter:

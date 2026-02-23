@@ -450,6 +450,22 @@ namespace detail {
 
 	inline size_t get_linear_index(const range<3>& range, const id<3>& index) { return index[0] * range[1] * range[2] + index[1] * range[2] + index[2]; }
 
+	template <int Dims>
+	inline celerity::id<Dims> get_nd_index(const size_t linear_idx, const celerity::range<Dims>& range) {
+		if constexpr(Dims == 0) {
+			return {};
+		} else if constexpr(Dims == 1) {
+			return {linear_idx};
+		} else if constexpr(Dims == 2) {
+			return {linear_idx / range[1], linear_idx % range[1]};
+		} else if constexpr(Dims == 3) {
+			size_t xy = linear_idx % (range[1] * range[2]);
+			return {linear_idx / (range[1] * range[2]), xy / range[2], xy % range[2]};
+		} else {
+			static_assert(Dims >= 0 && Dims <= 3, "get_nd_index is only implemented for up to 3 dimensions");
+		}
+	}
+
 #define CELERITY_DETAIL_MAKE_COMPONENT_WISE_FN(name, coord, op)                                                                                                \
 	template <int Dims>                                                                                                                                        \
 	coord<Dims> name(const coord<Dims>& a, const coord<Dims>& b) {                                                                                             \
@@ -485,14 +501,16 @@ struct chunk {
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> offset;
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::range<Dims> range = detail::zeros;
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::range<Dims> global_size = detail::zeros;
+	CELERITY_DETAIL_NO_UNIQUE_ADDRESS celerity::range<Dims> local_range = detail::zeros;
 
 	constexpr chunk() = default;
 
-	constexpr chunk(const id<Dims>& offset, const celerity::range<Dims>& range, const celerity::range<Dims>& global_size)
-	    : offset(offset), range(range), global_size(global_size) {}
+	constexpr chunk(
+	    const id<Dims>& offset, const celerity::range<Dims>& range, const celerity::range<Dims>& global_size, const celerity::range<Dims>& local_range)
+	    : offset(offset), range(range), global_size(global_size), local_range(local_range) {}
 
 	friend bool operator==(const chunk& lhs, const chunk& rhs) {
-		return lhs.offset == rhs.offset && lhs.range == rhs.range && lhs.global_size == rhs.global_size;
+		return lhs.offset == rhs.offset && lhs.range == rhs.range && lhs.global_size == rhs.global_size && lhs.local_range == rhs.local_range;
 	}
 	friend bool operator!=(const chunk& lhs, const chunk& rhs) { return !operator==(lhs, rhs); }
 };
@@ -549,7 +567,7 @@ id<DimsOut> id_cast(const InterfaceIn& in) {
 /// Returns the smallest dimensionality that the chunk can be `chunk_cast` to.
 template <int Dims>
 int get_effective_dims(const chunk<Dims>& ck) {
-	return std::max({get_effective_dims(ck.offset), get_effective_dims(ck.range), get_effective_dims(ck.global_size)});
+	return std::max({get_effective_dims(ck.offset), get_effective_dims(ck.range), get_effective_dims(ck.global_size), get_effective_dims(ck.local_range)});
 }
 
 /// Returns the smallest dimensionality that the subrange can be `subrange_cast` to.
@@ -561,7 +579,8 @@ int get_effective_dims(const subrange<Dims>& sr) {
 template <int Dims, int OtherDims>
 chunk<Dims> chunk_cast(const chunk<OtherDims>& other) {
 	CELERITY_DETAIL_ASSERT_ON_HOST(get_effective_dims(other) <= Dims);
-	return chunk{detail::id_cast<Dims>(other.offset), detail::range_cast<Dims>(other.range), detail::range_cast<Dims>(other.global_size)};
+	return chunk{detail::id_cast<Dims>(other.offset), detail::range_cast<Dims>(other.range), detail::range_cast<Dims>(other.global_size),
+	    detail::range_cast<Dims>(other.local_range)};
 }
 
 template <int Dims, int OtherDims>

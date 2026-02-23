@@ -29,7 +29,7 @@ int main() {
 	[[maybe_unused]] const celerity::id<3> id(1, 2, 3);
 	[[maybe_unused]] const celerity::range<3> range(1, 2, 3);
 	[[maybe_unused]] const celerity::subrange<3> subrange(celerity::id(1, 2, 3), celerity::range(4, 5, 6));
-	[[maybe_unused]] const celerity::chunk<3> chunk(celerity::id(1, 2, 3), celerity::range(4, 5, 6), celerity::range(7, 8, 9));
+	[[maybe_unused]] const celerity::chunk<3> chunk(celerity::id(1, 2, 3), celerity::range(4, 5, 6), celerity::range(7, 8, 9), celerity::range(10, 11, 12));
 	[[maybe_unused]] const celerity::nd_range<3> nd_range(celerity::range(2, 4, 6), celerity::range(1, 2, 3), celerity::id(7, 8, 9));
 	[[maybe_unused]] const celerity::detail::box<3> box(celerity::id(1, 2, 3), celerity::id(4, 5, 6));
 	[[maybe_unused]] const celerity::detail::region<3> empty_region;

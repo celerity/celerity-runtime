@@ -3,6 +3,7 @@
 #include "buffer.h"
 #include "cgf_diagnostics.h"
 #include "closure_hydrator.h"
+#include "compression.h"
 #include "handler.h"
 #include "range_mapper.h"
 #include "ranges.h"
@@ -25,12 +26,12 @@ namespace celerity {
 template <int Dims>
 class partition;
 
-template <typename DataT, int Dims, access_mode Mode, target Target>
+template <typename DataT, int Dims, access_mode Mode, target Target, typename Compression>
 class accessor;
 
 namespace detail {
 
-	template <typename DataT, int Dims, access_mode Mode, target Target>
+	template <typename DataT, int Dims, access_mode Mode, target Target, typename Compression>
 	class accessor_base {
 	  public:
 		static_assert(Dims <= 3, "accessors can only have 3 dimensions or less");
@@ -89,7 +90,7 @@ class buffer_allocation_window {
 	    : m_allocation(allocation), m_buffer_range(buffer_range), m_allocation_range(allocation_range), m_window_range(window_range),
 	      m_allocation_offset_in_buffer(allocation_offset_in_buffer), m_window_offset_in_buffer(window_offset_in_buffer) {}
 
-	template <typename, int, access_mode, target>
+	template <typename, int, access_mode, target, typename>
 	friend class accessor;
 };
 
@@ -109,7 +110,8 @@ inline constexpr detail::access_tag<access_mode::read_write, access_mode::discar
  * as their semantics in a distributed context are unclear.
  */
 template <typename DataT, int Dims, access_mode Mode>
-class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base<DataT, Dims, Mode, target::device> {
+class accessor<DataT, Dims, Mode, target::device, compression::uncompressed>
+    : public detail::accessor_base<DataT, Dims, Mode, target::device, compression::uncompressed> {
 	friend struct detail::accessor_testspy;
 
 	struct ctor_internal_tag {};
@@ -265,6 +267,17 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 
 	friend bool operator!=(const accessor& lhs, const accessor& rhs) { return !(lhs == rhs); }
 
+	// TODO: This function is needed for getting allocation offset in compressed accessor.
+	// IDEA: make a new type of accessor which doesn't require m_allocation_offset to be exposed here
+	//       for future replacement with device local buffer accessor.
+	//       Protected with a new accessor type which handles device_local_buffer_accessors. Or something similar.
+	//       struct derived_accessor : public accessor {
+	//       using base::base ...
+	//       };
+	//       use freestanding friend function in detail namespace
+	id<Dims> get_allocation_offset() const { return m_allocation_offset; }
+	range<Dims> get_allocation_range() const { return m_allocation_range; }
+
   private:
 	DataT* m_device_ptr = nullptr;
 	CELERITY_DETAIL_NO_UNIQUE_ADDRESS id<Dims> m_allocation_offset;
@@ -318,6 +331,12 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 					m_device_ptr = static_cast<DataT*>(info.ptr);
 					m_allocation_offset = detail::id_cast<Dims>(info.allocated_box_in_buffer.get_offset());
 					m_allocation_range = detail::range_cast<Dims>(info.allocated_box_in_buffer.get_range());
+					// auto test = info.accessed_box_in_buffer.get_range();
+					// auto test2 = info.allocated_box_in_buffer.get_offset();
+					// printf(
+					//     "Hydrated accessor with allocation offset %ld, %ld and allocation range %ld, %ld, accessed range %ld, %ld, accessed offset %ld,
+					//     %ld\n", m_allocation_offset[0], m_allocation_offset[1], m_allocation_range[0], m_allocation_range[1], test[0], test[1], test2[0],
+					//     test2[1]);
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 					m_oob_indices = info.out_of_bounds_indices;
 					m_oob_declared_bounds = box_cast<Dims>(info.accessed_box_in_buffer);
@@ -327,11 +346,22 @@ class accessor<DataT, Dims, Mode, target::device> : public detail::accessor_base
 		})
 	}
 
-	size_t get_linear_offset(const id<Dims>& index) const { return detail::get_linear_index(m_allocation_range, index - m_allocation_offset); }
+	size_t get_linear_offset(const id<Dims>& index) const {
+		// if constexpr(Dims == 2) {
+		// 	printf("get_linear_offset called with index %ld, %ld, allocation_range %ld, %ld, allocation offset %ld, %ld\n", index[0], index[1],
+		// 	    m_allocation_range[0], m_allocation_range[1], m_allocation_offset[0], m_allocation_offset[1]);
+		// } else if constexpr(Dims == 3) {
+		// 	printf("get_linear_offset called with index %ld %ld, %ld, allocation_range %ld %ld, %ld, allocation offset %ld %ld %ld\n", index[0], index[1],
+		// 	    index[2], m_allocation_range[0], m_allocation_range[1], m_allocation_range[2], m_allocation_offset[0], m_allocation_offset[1],
+		// 	    m_allocation_offset[2]);
+		// }
+		return detail::get_linear_index(m_allocation_range, index - m_allocation_offset);
+	}
 };
 
 template <typename DataT, int Dims, access_mode Mode>
-class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_base<DataT, Dims, Mode, target::host_task> {
+class accessor<DataT, Dims, Mode, target::host_task, compression::uncompressed>
+    : public detail::accessor_base<DataT, Dims, Mode, target::host_task, compression::uncompressed> {
 	friend struct detail::accessor_testspy;
 
 	struct ctor_internal_tag {};
@@ -619,27 +649,28 @@ class accessor<DataT, Dims, Mode, target::host_task> : public detail::accessor_b
 #undef CELERITY_DETAIL_ACCESSOR_DEPRECATED_CTOR
 
 // TODO: Make buffer non-const once corresponding (deprecated!) constructor overloads are removed
-template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag) -> accessor<T, D, Mode, Target>;
+template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target, typename Compression = compression::uncompressed>
+accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag)
+    -> accessor<T, D, Mode, Target, Compression>;
 
-template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag,
-    const property::no_init no_init) -> accessor<T, D, ModeNoInit, Target>;
+template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target, typename Compression = compression::uncompressed>
+accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property::no_init no_init)
+    -> accessor<T, D, ModeNoInit, Target, Compression>;
 
-template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag,
-    const property_list& props) -> accessor<T, D, Mode, Target>;
+template <typename T, int D, typename Functor, access_mode Mode, access_mode ModeNoInit, target Target, typename Compression = compression::uncompressed>
+accessor(const buffer<T, D>& buff, handler& cgh, const Functor& rmfn, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property_list& props)
+    -> accessor<T, D, Mode, Target, Compression>;
 
-template <typename T, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag) -> accessor<T, 0, Mode, Target>;
+template <typename T, access_mode Mode, access_mode ModeNoInit, target Target, typename Compression = compression::uncompressed>
+accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag) -> accessor<T, 0, Mode, Target, Compression>;
 
-template <typename T, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag,
-    const property::no_init no_init) -> accessor<T, 0, ModeNoInit, Target>;
+template <typename T, access_mode Mode, access_mode ModeNoInit, target Target, typename Compression = compression::uncompressed>
+accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property::no_init no_init)
+    -> accessor<T, 0, ModeNoInit, Target, Compression>;
 
-template <typename T, access_mode Mode, access_mode ModeNoInit, target Target>
-accessor(
-    const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property_list& props) -> accessor<T, 0, Mode, Target>;
+template <typename T, access_mode Mode, access_mode ModeNoInit, target Target, typename Compression = compression::uncompressed>
+accessor(const buffer<T, 0>& buff, handler& cgh, const detail::access_tag<Mode, ModeNoInit, Target> tag, const property_list& props)
+    -> accessor<T, 0, Mode, Target, Compression>;
 
 
 template <typename DataT, int Dims = 1>
