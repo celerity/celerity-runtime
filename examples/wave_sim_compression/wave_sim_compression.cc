@@ -8,10 +8,12 @@
 
 #include "compression.h"
 
-constexpr uint32_t LOCAL_RANGE_X = 8;
-constexpr uint32_t LOCAL_RANGE_Y = 8;
+constexpr uint32_t LOCAL_RANGE_X = 2;
+constexpr uint32_t LOCAL_RANGE_Y = 128;
 
+#if !defined(USE_ELEMENT_COMPRESSION) && !defined(USE_LOCAL_COMPRESSION) && !defined(USE_GLOBAL_COMPRESSION)
 #define USE_LOCAL_COMPRESSION
+#endif
 
 #if defined(USE_ELEMENT_COMPRESSION)
 constexpr auto compression_category = celerity::compression_category::element_wise;
@@ -102,7 +104,8 @@ void step(celerity::queue& queue, celerity::buffer<T, 2, compression_type_a> up,
 		celerity::accessor r_u{u, cgh, celerity::access::neighborhood{{1, 1}, celerity::neighborhood_shape::along_axes}, celerity::read_only};
 
 #if defined(USE_LOCAL_COMPRESSION)
-		celerity::local_accessor<float, 1> local_u({1000}, cgh); // TODO: THIS IS HARDCODED
+		celerity::local_accessor<float, 1> local_u(
+		    {(LOCAL_RANGE_X + 2) * (LOCAL_RANGE_Y + 2) + 2 + LOCAL_RANGE_X * LOCAL_RANGE_Y + 2}, cgh); // TODO: THIS IS HARDCODED
 #endif
 
 		const auto range = up.get_range();
@@ -115,7 +118,7 @@ void step(celerity::queue& queue, celerity::buffer<T, 2, compression_type_a> up,
 			auto rw_comp = rw_up;
 			auto r_comp = r_u;
 #elif defined(USE_LOCAL_COMPRESSION)
-			auto alloc = make_local_allocator<float>(1000, local_u); // TODO: THIS IS HARDCODED
+			auto alloc = make_local_allocator<float>((LOCAL_RANGE_X + 2) * (LOCAL_RANGE_Y + 2) + 2 + LOCAL_RANGE_X * LOCAL_RANGE_Y + 2, local_u); // TODO: THIS IS HARDCODED
 
 			auto rw_comp = rw_up.decompress_data(item, alloc);
 			auto r_comp = r_u.decompress_data(item, alloc);
@@ -124,7 +127,6 @@ void step(celerity::queue& queue, celerity::buffer<T, 2, compression_type_a> up,
 			auto r_comp = r_u.decompress_data(item);
 #endif
 
-			// TODO: DISCUSS LAZY DECOMPRESSION FOR STENCIL VALUES
 			const auto id = item.get_global_id();
 			if(id[0] < range[0] && id[1] < range[1]) {
 				const size_t py = id[0] < range[0] - 1 ? id[0] + 1 : id[0];
@@ -234,7 +236,6 @@ int main(int argc, char* argv[]) {
 	celerity::queue queue;
 
 	compression_type_a compression_type(-0.5f, 1.0f);
-	// compression_type_a compression_type;
 
 	celerity::buffer<float, 2, compression_type_a> up{celerity::range<2>(cfg.N, cfg.N), compression_type}; // next
 	celerity::debug::set_buffer_name(up, "up");
@@ -246,21 +247,10 @@ int main(int argc, char* argv[]) {
 	u.init(queue);
 #endif
 
-	// std::cout << "Setting up initial wave..." << std::endl;
 	setup_wave(queue, u, {cfg.N / 4.f, cfg.N / 4.f}, 1, {cfg.N / 8.f, cfg.N / 8.f});
-	// queue.wait(celerity::experimental::barrier);
-	// std::cout << "Zeroing next state buffer..." << std::endl;
 	zero(queue, up);
-	// queue.wait(celerity::experimental::barrier);
-	// std::cout << "Initializing simulation..." << std::endl;
-	// #if defined(USE_GLOBAL_COMPRESSION)
-	// 	up.init(queue);
-	// 	u.init(queue);
-	// #endif
 
 	initialize(queue, up, u, cfg.dt, {cfg.dx, cfg.dy});
-	// queue.wait(celerity::experimental::barrier);
-	// std::cout << "Initialization complete." << std::endl;
 
 	const celerity::experimental::host_object<std::ofstream> os;
 	if(cfg.output_sample_rate > 0) {
@@ -272,8 +262,6 @@ int main(int argc, char* argv[]) {
 	size_t i = 0;
 
 	queue.wait(celerity::experimental::barrier);
-	// printf("Starting time loop with %zu steps\n", num_steps);
-	// time loop
 	std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 
 	while(t < cfg.T) {
@@ -293,11 +281,5 @@ int main(int argc, char* argv[]) {
 
 	if(cfg.output_sample_rate > 0) { stream_close(queue, os); }
 
-	// queue.wait(celerity::experimental::barrier);
-
-	// std::cout << "Simulation complete." << std::endl;
-
 	return EXIT_SUCCESS;
 }
-
-// int main(int argc, char* argv[]) { return 0; }

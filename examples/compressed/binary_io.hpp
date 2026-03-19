@@ -24,6 +24,10 @@ void write_grid_file_internal(const std::string& filename, const Grid& grid, con
 		return;
 	}
 
+	const size_t width = static_cast<size_t>(xy.first);
+	const size_t height = static_cast<size_t>(xy.second);
+	const size_t tile_capacity = (width == 0 || height == 0) ? 0 : grid.size() / (width * height);
+
 	for(int i = 0; i < xy.first; i++) {
 		for(int j = 0; j < xy.second; j++) {
 			detail::grid_index grid_index{};
@@ -33,9 +37,10 @@ void write_grid_file_internal(const std::string& filename, const Grid& grid, con
 			binary_file.write(reinterpret_cast<char*>(&grid_index), sizeof(detail::grid_index));
 			int size = retrieve_size(i, j);
 			binary_file.write(reinterpret_cast<char*>(&size), sizeof(int));
-			for(int k = 0; k < retrieve_size(i, j); k++) {
-				const Point point = grid[celerity::detail::get_linear_index({static_cast<size_t>(xy.first), static_cast<size_t>(xy.second), 105},
-				    {static_cast<size_t>(i), static_cast<size_t>(j), static_cast<size_t>(k)})]; // Assuming the grid is stored in a linearized manner
+			for(int k = 0; k < size; k++) {
+				// Flattened layout is [x][y][z] with a fixed z-capacity per tile.
+				size_t linear_idx = (((static_cast<size_t>(i) * height) + static_cast<size_t>(j)) * tile_capacity) + static_cast<size_t>(k);
+				const Point point = grid[linear_idx];
 				binary_file.write(reinterpret_cast<const char*>(&point), sizeof(DataTY) * 3);
 			}
 		}
@@ -44,7 +49,7 @@ void write_grid_file_internal(const std::string& filename, const Grid& grid, con
 
 template <typename Point, typename Grid, typename Sizes>
 void write_grid_file(const std::string& filename, const Grid& grid, const std::pair<int, int>& xy, Sizes& size) {
-	write_grid_file_internal<Point>(filename, grid, xy, [&size](size_t i, size_t j) { return size[{i, j}]; });
+	write_grid_file_internal<Point>(filename, grid, xy, [&size](size_t i, size_t j) { return size[celerity::id<2>(i, j)]; });
 }
 
 template <typename Point>
@@ -63,11 +68,11 @@ std::vector<std::vector<std::vector<Point>>> read_grid_file(const std::string& f
 		return grid;
 	}
 
-	while(!binary_file.eof()) {
+	while(true) {
 		int amount = 0;
 		detail::grid_index grid_index{};
-		binary_file.read(reinterpret_cast<char*>(&grid_index), sizeof(detail::grid_index));
-		binary_file.read(reinterpret_cast<char*>(&amount), sizeof(int)); // Read the closing parenthesis
+		if(!binary_file.read(reinterpret_cast<char*>(&grid_index), sizeof(detail::grid_index))) { break; }
+		if(!binary_file.read(reinterpret_cast<char*>(&amount), sizeof(int))) { break; }
 
 		if(static_cast<size_t>(grid_index.x) >= grid.size()) { grid.push_back(std::vector<std::vector<Point>>()); }
 
@@ -75,7 +80,7 @@ std::vector<std::vector<std::vector<Point>>> read_grid_file(const std::string& f
 
 		for(int i = 0; i < amount; i++) {
 			Point point;
-			binary_file.read(reinterpret_cast<char*>(&point), sizeof(DataTY) * 3);
+			if(!binary_file.read(reinterpret_cast<char*>(&point), sizeof(DataTY) * 3)) { return grid; }
 
 			grid[grid_index.x][grid_index.y].push_back(point);
 		}
@@ -92,19 +97,21 @@ void read_grid_file(const std::string& filename, PointGrid& grid, AmountGrid& am
 		return;
 	}
 
-	while(!binary_file.eof()) {
+	while(true) {
 		int amount = 0;
 		detail::grid_index grid_index{};
-		binary_file.read(reinterpret_cast<char*>(&grid_index), sizeof(detail::grid_index));
-		binary_file.read(reinterpret_cast<char*>(&amount), sizeof(int)); // Read the closing parenthesis
+		if(!binary_file.read(reinterpret_cast<char*>(&grid_index), sizeof(detail::grid_index))) { break; }
+		if(!binary_file.read(reinterpret_cast<char*>(&amount), sizeof(int))) { break; }
 
-		amount_grid[grid_index.x][grid_index.y] = amount;
+		amount_grid[celerity::id<2>(grid_index.x, grid_index.y)] = amount;
 
 		for(int i = 0; i < amount; i++) {
 			Point point;
-			binary_file.read(reinterpret_cast<char*>(&point), sizeof(DataTY) * 3);
+			if(!binary_file.read(reinterpret_cast<char*>(&point), sizeof(DataTY) * 3)) { return; }
 
-			grid[grid_index.x][grid_index.y][i] = point;
+			// Use linear indexing for 1D decompressed data
+			// size_t linear_idx = (static_cast<size_t>(grid_index.x) * 105000) + (static_cast<size_t>(grid_index.y) * 105) + (static_cast<size_t>(i));
+			grid[celerity::id<3>(grid_index.x, grid_index.y, i)] = point;
 		}
 	}
 }

@@ -5,12 +5,14 @@
 #include "tracy.h"
 #include "types.h"
 
-#include "compression.h"
-
 #include <memory>
 
 
 namespace celerity {
+
+namespace compression {
+	struct uncompressed;
+}
 
 template <typename DataT, int Dims = 1, typename Compression = compression::uncompressed>
 class buffer;
@@ -41,7 +43,7 @@ std::string get_buffer_name(const celerity::buffer<DataT, Dims>& buff) {
 
 namespace celerity {
 
-template <typename DataT, int Dims, access_mode Mode, target Target, typename Compression = compression::uncompressed>
+template <typename DataT, int Dims, access_mode Mode, target Target, typename Compression>
 class accessor;
 
 template <typename DataT, int Dims, typename Compression>
@@ -143,3 +145,5 @@ class buffer {
 };
 
 } // namespace celerity
+
+#include "compression.h"

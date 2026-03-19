@@ -26,7 +26,7 @@ namespace celerity {
 template <int Dims>
 class partition;
 
-template <typename DataT, int Dims, access_mode Mode, target Target, typename Compression>
+template <typename DataT, int Dims, access_mode Mode, target Target, typename Compression = compression::uncompressed>
 class accessor;
 
 namespace detail {
