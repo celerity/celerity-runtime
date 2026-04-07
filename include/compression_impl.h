@@ -3,7 +3,6 @@
 #include "ranges.h"
 #include "types.h"
 #include <celerity.h>
-#include <compression.h>
 #include <concepts>
 #include <optional>
 #include <tuple>

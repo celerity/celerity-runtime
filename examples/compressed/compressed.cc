@@ -6,7 +6,10 @@
 
 #include <celerity.h>
 
-#include "../wave_sim_compression/compression.h"
+#include <compression.h>
+#include <compression_impl.h>
+#include <compression_wrapper.h>
+
 
 #include "./binary_io.hpp"
 #include "./eigen_decomposition.hpp"
@@ -239,8 +242,9 @@ static inline std::array<std::array<DataTY, 3>, 3> matmul(const Point p) {
 static inline bool is_different(const Point p1, const Point p2) { return p1.x() != p2.x() || p1.y() != p2.y() || p1.z() != p2.z(); }
 
 template <int LocalSearchRadius, int WorkItemsPerTile, int PointsPerTile, typename T, typename U>
-static void shape_factor_calculation(celerity::queue& queue, celerity::buffer<T, 3, compression_tile_type>& tile_points, celerity::buffer<int, 2>& tile_point_count,
-    celerity::buffer<U, 3, compression_type>& shape_factors, const DataTY radius, const DataTY x_min, const DataTY y_min, const int tile_size) {
+static void shape_factor_calculation(celerity::queue& queue, celerity::buffer<T, 3, compression_tile_type>& tile_points,
+    celerity::buffer<int, 2>& tile_point_count, celerity::buffer<U, 3, compression_type>& shape_factors, const DataTY radius, const DataTY x_min,
+    const DataTY y_min, const int tile_size) {
 	size_t neighborhood_radius = static_cast<size_t>(LocalSearchRadius);
 	CELERITY_DEBUG("Neighborhood radius: {}", neighborhood_radius);
 	std::cout << "Neighborhood radius: " << neighborhood_radius << "\n";
@@ -435,26 +439,26 @@ int main(int argc, char* argv[]) {
 	celerity::queue queue;
 	celerity::buffer<Point, 1> point_buffer(points.data(), points.size());
 
-	#if defined(USE_UNCOMPRESSED)
+#if defined(USE_UNCOMPRESSED)
 	celerity::buffer<Point, 3, compression_tile_type> tile_points({width, height, points_per_tile});
-	#elif defined(USE_ZCURVE_HYBRID)
+#elif defined(USE_ZCURVE_HYBRID)
 	compression_tile_type compression_tile{Point{x_min, y_min, 0}, static_cast<DataTY>(1)};
 	celerity::buffer<Point, 3, compression_tile_type> tile_points({width, height, points_per_tile}, compression_tile);
-	#else
+#else
 	compression_tile_type compression_tile{Point{x_min, y_min, 0}, tile_size};
 	celerity::buffer<Point, 3, compression_tile_type> tile_points({width, height, points_per_tile}, compression_tile);
-	#endif
+#endif
 	// compression_tile.get_dependencies().tracking().calculate_size({width, height, points_per_tile});
 
 	celerity::buffer<int, 2> tile_point_count({width, height});
 	celerity::debug::set_buffer_name(tile_point_count, "tile_point_count");
 
-	#if defined(USE_UNCOMPRESSED)
+#if defined(USE_UNCOMPRESSED)
 	celerity::buffer<ShapeFactors, 3, compression_type> shape_factors({width, height, points_per_tile});
-	#else
+#else
 	compression_type compression(0.0_FT, 1.0_FT);
 	celerity::buffer<ShapeFactors, 3, compression_type> shape_factors({width, height, points_per_tile}, compression);
-	#endif
+#endif
 
 #if defined(USE_GLOBAL_COMPRESSION)
 	tile_points.init(queue);
@@ -489,13 +493,13 @@ int main(int argc, char* argv[]) {
 		celerity::accessor tile_points_count_acc{tile_point_count, cgh, celerity::access::all{}, celerity::read_only_host_task};
 		celerity::accessor tile_points_acc{tile_points, cgh, celerity::access::all{}, celerity::read_only_host_task};
 		std::pair<size_t, size_t> xy = {tile_points.get_range()[0], tile_points.get_range()[1]};
-		#if defined(USE_UNCOMPRESSED)
+#if defined(USE_UNCOMPRESSED)
 		auto tile_capacity = tile_points.get_range()[2];
-		#endif
+#endif
 
 		// celerity::range<3> tile_points_range = tile_points.get_range();
 		cgh.host_task(celerity::on_master_node, [=]() {
-			#if defined(USE_UNCOMPRESSED)
+#if defined(USE_UNCOMPRESSED)
 			std::vector<Point> vec;
 			vec.reserve(static_cast<size_t>(xy.first) * static_cast<size_t>(xy.second) * tile_capacity);
 			for(size_t i = 0; i < static_cast<size_t>(xy.first); ++i) {
@@ -505,9 +509,9 @@ int main(int argc, char* argv[]) {
 					}
 				}
 			}
-			#else
+#else
 			auto vec = tile_points_acc.decompress_data();
-			#endif
+#endif
 
 			binary_io::write_grid_file<Point>(output_tile_file_name, vec, xy, tile_points_count_acc);
 		});
@@ -517,9 +521,7 @@ int main(int argc, char* argv[]) {
 		celerity::accessor tile_points_acc{tile_points, cgh, celerity::access::all{}, celerity::write_only_host_task};
 		celerity::accessor tile_points_count_acc{tile_point_count, cgh, celerity::access::all{}, celerity::write_only_host_task};
 
-		cgh.host_task(celerity::on_master_node, [=]() { 
-			binary_io::read_grid_file<Point>(input_tile_file_name, tile_points_acc, tile_points_count_acc);
-		});
+		cgh.host_task(celerity::on_master_node, [=]() { binary_io::read_grid_file<Point>(input_tile_file_name, tile_points_acc, tile_points_count_acc); });
 	});
 #endif
 
@@ -548,13 +550,13 @@ int main(int argc, char* argv[]) {
 		celerity::accessor tile_points_count_acc{tile_point_count, cgh, celerity::access::all{}, celerity::read_only_host_task};
 		celerity::accessor tile_points_acc{tile_points, cgh, celerity::access::all{}, celerity::read_only_host_task};
 		std::pair<size_t, size_t> xy = {tile_points.get_range()[0], tile_points.get_range()[1]};
-		#if defined(USE_UNCOMPRESSED)
+#if defined(USE_UNCOMPRESSED)
 		auto tile_capacity = tile_points.get_range()[2];
-		#endif
+#endif
 
 		// celerity::range<3> tile_points_range = tile_points.get_range();
 		cgh.host_task(celerity::on_master_node, [=]() {
-			#if defined(USE_UNCOMPRESSED)
+#if defined(USE_UNCOMPRESSED)
 			std::vector<Point> vec;
 			vec.reserve(static_cast<size_t>(xy.first) * static_cast<size_t>(xy.second) * tile_capacity);
 			for(size_t i = 0; i < static_cast<size_t>(xy.first); ++i) {
@@ -564,9 +566,9 @@ int main(int argc, char* argv[]) {
 					}
 				}
 			}
-			#else
+#else
 			auto vec = tile_points_acc.decompress_data();
-			#endif
+#endif
 
 			binary_io::write_grid_file<Point>(output_tile_file_name, vec, xy, tile_points_count_acc);
 		});
@@ -577,11 +579,11 @@ int main(int argc, char* argv[]) {
 		celerity::accessor shape_factor_acc{shape_factors, cgh, celerity::access::all{}, celerity::read_only_host_task};
 		celerity::accessor tile_point_count_acc{tile_point_count, cgh, celerity::access::all{}, celerity::read_only_host_task};
 		std::pair<int, int> xy = {shape_factors.get_range()[0], shape_factors.get_range()[1]};
-		#if defined(USE_UNCOMPRESSED)
+#if defined(USE_UNCOMPRESSED)
 		auto shape_capacity = shape_factors.get_range()[2];
-		#endif
+#endif
 		cgh.host_task(celerity::on_master_node, [=]() {
-			#if defined(USE_UNCOMPRESSED)
+#if defined(USE_UNCOMPRESSED)
 			std::vector<ShapeFactors> vec;
 			vec.reserve(static_cast<size_t>(xy.first) * static_cast<size_t>(xy.second) * shape_capacity);
 			for(size_t i = 0; i < static_cast<size_t>(xy.first); ++i) {
@@ -591,9 +593,9 @@ int main(int argc, char* argv[]) {
 					}
 				}
 			}
-			#else
+#else
 			auto vec = shape_factor_acc.decompress_data();
-			#endif
+#endif
 
 			binary_io::write_grid_file<ShapeFactors>(output_shape_factors_file_name, vec, xy, tile_point_count_acc);
 		});

@@ -6,7 +6,8 @@
 #include <celerity.h>
 #include <compression_wrapper.h>
 
-#include "compression.h"
+#include <compression.h>
+#include <compression_impl.h>
 
 constexpr uint32_t LOCAL_RANGE_X = 2;
 constexpr uint32_t LOCAL_RANGE_Y = 128;
