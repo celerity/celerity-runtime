@@ -229,6 +229,7 @@ set(PUBLIC_HEADERS
   include/cgf.h
   include/closure_hydrator.h
   include/compression_wrapper.h 
+  include/compression_impl.h
   include/compression.h
   include/config.h
   include/debug.h

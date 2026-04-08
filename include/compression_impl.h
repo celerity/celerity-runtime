@@ -2180,8 +2180,8 @@ class accessor<DataT, Dims, Mode, target::device,
   private:
 	template <int Dim, typename... Args>
 	inline auto decompress_impl(celerity::nd_item<Dim>& item, celerity::detail::compression_chunk<Dims> chunk, Args&&... args) const {
-		using CompressedContainer = typeof(m_compressed_data_acc);
-		using UncompressedContainer = uncompressed_container<Intype, Dims, typeof(m_uncompressed_data_acc), compression_category::global_memory>;
+		using CompressedContainer = decltype(m_compressed_data_acc);
+		using UncompressedContainer = uncompressed_container<Intype, Dims, decltype(m_uncompressed_data_acc), compression_category::global_memory>;
 
 		static_assert(contains_compress_decompress_memory_chunk<compressed<SelectedCompression<Intype, DataT>, compression_category::global_memory>,
 		                  CompressedContainer, UncompressedContainer, Dims, Args...>,
@@ -2261,6 +2261,10 @@ class accessor<DataT, Dims, Mode, target::host_task,
 	using compressed_type = typename compression::compressed_type;
 	using value_type = typename compression::value_type;
 
+	using retval =
+	    std::conditional_t<detail::is_producer_mode(Mode), uncompressed_item_wrapper<Intype, DataT, Dims, compression, compression_category::element_wise>,
+	        const uncompressed_item_wrapper_const<Intype, DataT, Dims, compression, compression_category::element_wise>>;
+
 	template <typename T, int D, typename Functor, access_mode ModeNoInit, template <typename, typename, compression_category> typename Compression>
 	accessor(buffer<T, D, Compression<T, DataT, Category>>& buff, handler& cgh, const Functor& rmfn,
 	    const detail::access_tag<Mode, ModeNoInit, target::host_task> tag)
@@ -2280,6 +2284,12 @@ class accessor<DataT, Dims, Mode, target::host_task,
 	    const property_list& prop_list)
 	    : m_compression(buff.get_compression().get_compression_object()), m_range(buff.get_range()), m_base_data_acc(buff, cgh, access::all(), tag, prop_list),
 	      m_extension_accessors(buff.get_compression().get_dependencies().accessors_from_buffers(buff.get_buffers_from_descriptions(), cgh, tag, prop_list)) {}
+
+	template <access_mode M = Mode>
+	    requires(Category == compression_category::element_wise)
+	inline retval operator[](const id<Dims>& index) const {
+		return {m_base_data_acc[index], index, m_compression};
+	}
 
 	template <typename... Args>
 	inline auto decompress_data(Args&&... args) const {
