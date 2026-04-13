@@ -333,7 +333,11 @@ class compressed_default : public compression_tags<CompressionCategory> {
 
 	template <specialization_of_item Item, int Dim>
 	inline celerity::id<1> calculate_tile_tracking_idx(const Item& item, const id<Dim>& offset) const {
-		return celerity::detail::get_linear_index(item.get_global_range() / item.get_local_range(), offset / item.get_local_range());
+		if constexpr(requires(const Derived& d, const Item& i, const id<Dim>& o) { d.calculate_tile_tracking_idx(i, o); }) {
+			return static_cast<const Derived*>(this)->calculate_tile_tracking_idx(item, offset);
+		} else {
+			return celerity::detail::get_linear_index(item.get_global_range() / item.get_local_range(), offset / item.get_local_range());
+		}
 	}
 };
 
@@ -815,46 +819,6 @@ class compressed<celerity::compression::quantization<T, C>, Category>
 		}
 	}
 
-
-	template <typename CompressedData, typename UncompressedData, int Dims, typename... Args>
-	void compress_memory_chunk(celerity::nd_item<Dims> item, CompressedData& compressed_data_acc, const UncompressedData& uncompressed_data_acc) const {
-		auto global_id = item.get_global_id();
-
-		compressed_data_acc[global_id] = compress(uncompressed_data_acc[global_id], global_id);
-	}
-
-	template <typename CompressedData, typename UncompressedData, int Dims, typename... Args>
-	void decompress_memory_chunk(celerity::nd_item<Dims> item, const CompressedData& compressed_data_acc, const UncompressedData& uncompressed_data_acc) const {
-		auto global_id = item.get_global_id();
-		auto chunk_size = uncompressed_data_acc.get_chunk_size();
-
-		if(item.get_local_range(0) < chunk_size[0] || item.get_local_range(1) < chunk_size[1]) {
-			auto global_range = item.get_global_range();
-
-			if(item.get_local_id(0) == item.get_local_range(0) - 1) {
-				size_t py = global_id[0] < global_range[0] - 1 ? global_id[0] + 1 : global_id[0];
-				uncompressed_data_acc[{py, global_id[1]}] = decompress(compressed_data_acc[{py, global_id[1]}], global_id);
-			}
-
-			if(item.get_local_id(0) == 0) {
-				size_t my = global_id[0] > 0 ? global_id[0] - 1 : global_id[0];
-				uncompressed_data_acc[{my, global_id[1]}] = decompress(compressed_data_acc[{my, global_id[1]}], global_id);
-			}
-
-			if(item.get_local_id(1) == item.get_local_range(1) - 1) {
-				size_t px = global_id[1] < global_range[1] - 1 ? global_id[1] + 1 : global_id[1];
-				uncompressed_data_acc[{global_id[0], px}] = decompress(compressed_data_acc[{global_id[0], px}], global_id);
-			}
-
-			if(item.get_local_id(1) == 0) {
-				size_t mx = global_id[1] > 0 ? global_id[1] - 1 : global_id[1];
-				uncompressed_data_acc[{global_id[0], mx}] = decompress(compressed_data_acc[{global_id[0], mx}], global_id);
-			}
-		}
-
-		uncompressed_data_acc[global_id] = decompress(compressed_data_acc[global_id], global_id);
-	}
-
   private:
 	static vec_value_type calculate_decompression_factor(vec_value_type lower_bound, vec_value_type upper_bound) {
 		return 1 / static_cast<vec_value_type>(std::numeric_limits<vec_compressed_type>::max()) * (upper_bound - lower_bound);
@@ -1140,6 +1104,22 @@ class compressed<compression::conversion<T, C>, Category>
 	}
 };
 
+
+template <typename T, typename C, compression_category Category>
+class conversion_compression : public compression_object_skeleton<conversion_compression<T, C, Category>> {
+  public:
+	template <typename... Args>
+	    requires std::constructible_from<compressed<compression::conversion<T, C>, Category>, Args...>
+	conversion_compression(Args&&... args) : m_compression_object(std::forward<Args>(args)...) {}
+
+	auto get_compression_object() const { return m_compression_object; }
+
+	auto get_dependencies() const { return m_dependencies; }
+
+  private:
+	compressed<compression::conversion<T, C>, Category> m_compression_object;
+	dependency_bundle<buffer_access_description<T, downscale_device_specific_mapper>> m_dependencies;
+};
 
 // Element wise compressed accessor proxy for reading compressed data
 template <typename T, typename C, int Dims, typename SelectedCompression, compression_category Category>

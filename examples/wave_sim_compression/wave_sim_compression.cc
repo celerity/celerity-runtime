@@ -9,6 +9,8 @@
 #include <compression.h>
 #include <compression_impl.h>
 
+#include "specialized_compression.h"
+
 constexpr uint32_t LOCAL_RANGE_X = 2;
 constexpr uint32_t LOCAL_RANGE_Y = 128;
 
@@ -26,8 +28,7 @@ constexpr auto compression_category = celerity::compression_category::global_mem
 #error "Please define either USE_ELEMENT_COMPRESSION, USE_LOCAL_COMPRESSION or USE_GLOBAL_COMPRESSION"
 #endif
 
-using compression_type_a = celerity::quantization_compression<float, int16_t, compression_category>;
-
+using compression_type_a = celerity::specialized_quantization_compression<float, int16_t, compression_category>;
 
 void setup_wave(celerity::queue& queue, celerity::buffer<float, 2, compression_type_a> u, sycl::float2 center, float amplitude, sycl::float2 sigma) {
 	queue.submit([&](celerity::handler& cgh) {
@@ -69,7 +70,7 @@ void zero(celerity::queue& queue, celerity::buffer<float, 2, compression_type_a>
 		const auto range = buf.get_range();
 		const celerity::range<2> local_range{LOCAL_RANGE_X, LOCAL_RANGE_Y};
 		const celerity::range<2> global_range{
-		    (range[0], range[1] + LOCAL_RANGE_Y - 1) / LOCAL_RANGE_Y * LOCAL_RANGE_Y, (range[1] + LOCAL_RANGE_Y - 1) / LOCAL_RANGE_Y * LOCAL_RANGE_Y};
+		    (range[0] + LOCAL_RANGE_X - 1) / LOCAL_RANGE_X * LOCAL_RANGE_X, (range[1] + LOCAL_RANGE_Y - 1) / LOCAL_RANGE_Y * LOCAL_RANGE_Y};
 		cgh.parallel_for<class zero>(celerity::nd_range<2>(global_range, local_range), [=](celerity::nd_item<2> item) {
 #if defined(USE_ELEMENT_COMPRESSION)
 			auto zero_comp = dw_buf;
