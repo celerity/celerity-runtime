@@ -36,6 +36,7 @@ class buffer_snapshot {
 	buffer_snapshot& operator=(buffer_snapshot&& other) noexcept {
 		m_subrange = other.m_subrange, other.m_subrange = {};
 		m_data = std::move(other.m_data);
+		return *this;
 	}
 
 	id<Dims> get_offset() const { return m_subrange.offset; }
