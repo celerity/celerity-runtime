@@ -1,6 +1,7 @@
 #include "grid_test_utils.h"
 #include "test_utils.h"
 
+#include <array>
 #include <random>
 
 #if CELERITY_DETAIL_HAVE_CAIRO

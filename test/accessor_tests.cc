@@ -558,6 +558,10 @@ namespace detail {
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK
 		SKIP("no accessor size guarantees when CELERITY_ACCESSOR_BOUNDARY_CHECK=1.");
 #endif
+#if defined(__clang__) && defined(_MSC_VER)
+		SKIP("clang-cl does not correctly collapse chained/nested [[msvc::no_unique_address]] members, unlike real MSVC "
+		     "(https://github.com/llvm/llvm-project/issues/143245), so 0-dimensional accessors are not pointer-sized on this compiler.");
+#endif
 
 		// these checks are not static_asserts because they depend on an (optional) compiler layout optimization
 		CHECK(sizeof(accessor<int, 0, access_mode::read, target::device>) == sizeof(int*));
