@@ -5,6 +5,7 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <celerity.h>
+#include <vector>
 
 #include "test_utils.h"
 

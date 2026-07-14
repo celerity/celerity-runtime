@@ -12,6 +12,7 @@ This release is WIP
 
 ### Fixed
 - Fix a missing return statement for the `buffer_snapshot` move assignment operator (#335)
+- Re-enable Windows support by fixing a range of Windows-specific and dependency-related issues (#336)
 
 ## [0.7.0] - 2025-08-18
 

@@ -4,7 +4,7 @@
 #include "instruction_graph.h"
 #include "log.h"
 #include "named_threads.h"
-
+#include "pilot.h"
 
 namespace celerity::detail {
 

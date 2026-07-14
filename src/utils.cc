@@ -20,7 +20,7 @@
 
 #include <fmt/format.h>
 
-#if !defined(_MSC_VER)
+#if __has_include(<cxxabi.h>)
 // Required for kernel name demangling in Clang
 #include <cxxabi.h>
 #endif
@@ -28,16 +28,70 @@
 
 namespace celerity::detail::utils {
 
+#if !__has_include(<cxxabi.h>)
+static std::string msvc_undecorate_type_name(std::string s) {
+	static constexpr const char* ptr_suffixes[] = {
+	    " * __ptr64",
+	    " * __ptr32",
+	    " *",
+	    " & __ptr64",
+	    " &",
+	    " && __ptr64",
+	    " &&",
+	};
+	for(const char* suffix : ptr_suffixes) {
+		std::string_view sv(suffix);
+		if(s.size() >= sv.size() && s.compare(s.size() - sv.size(), sv.size(), sv) == 0) {
+			s.erase(s.size() - sv.size());
+			break;
+		}
+	}
+
+	static constexpr const char* cv_suffixes[] = {
+	    " const volatile",
+	    " volatile",
+	    " const",
+	};
+	for(const char* suffix : cv_suffixes) {
+		std::string_view sv(suffix);
+		if(s.size() >= sv.size() && s.compare(s.size() - sv.size(), sv.size(), sv) == 0) {
+			s.erase(s.size() - sv.size());
+			break;
+		}
+	}
+
+	static constexpr const char* prefixes[] = {
+	    "class ",
+	    "struct ",
+	    "union ",
+	    "enum ",
+	};
+	for(const char* prefix : prefixes) {
+		std::string_view sv(prefix);
+		if(s.compare(0, sv.size(), sv) == 0) {
+			s.erase(0, sv.size());
+			break;
+		}
+	}
+
+	return s;
+}
+#endif
+
 std::string get_simplified_type_name_from_pointer(const std::type_info& pointer_type_info) {
-#if !defined(_MSC_VER)
+// This type of demangling can be done if the abi header is available. This also works for Clang on Windows, if
+// compiled with Itanium ABI on Windows (e.g. MinGW/MSYS2).
+#if __has_include(<cxxabi.h>)
 	const std::unique_ptr<char, void (*)(void*)> demangle_buffer(abi::__cxa_demangle(pointer_type_info.name(), nullptr, nullptr, nullptr), std::free);
 	std::string demangled_type_name = demangle_buffer.get();
-#else
-	std::string demangled_type_name = pointer_type_info.name();
-#endif
 
 	// get rid of the pointer "*"
 	if(!demangled_type_name.empty() && demangled_type_name.back() == '*') { demangled_type_name.pop_back(); }
+#elif defined(_MSC_VER)
+	std::string demangled_type_name = msvc_undecorate_type_name(pointer_type_info.name());
+#else
+#error "Unsupported compiler for type name demangling"
+#endif
 
 	if(demangled_type_name.length() < 2) return demangled_type_name;
 	bool templated = false;

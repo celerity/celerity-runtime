@@ -6,7 +6,6 @@
 
 #include <sycl/sycl.hpp>
 
-
 #if CELERITY_SYCL_IS_DPCPP
 #define CELERITY_WORKAROUND_DPCPP 1
 #else
@@ -47,9 +46,14 @@
 #if __has_cpp_attribute(no_unique_address) // C++20, but implemented as an extension for earlier standards in Clang
 #define CELERITY_DETAIL_HAS_NO_UNIQUE_ADDRESS true
 #define CELERITY_DETAIL_NO_UNIQUE_ADDRESS [[no_unique_address]]
+#elif __has_cpp_attribute(msvc::no_unique_address)
+#define CELERITY_DETAIL_HAS_NO_UNIQUE_ADDRESS true
+#define CELERITY_DETAIL_NO_UNIQUE_ADDRESS [[msvc::no_unique_address]]
 #else
 #define CELERITY_DETAIL_HAS_NO_UNIQUE_ADDRESS false
 #define CELERITY_DETAIL_NO_UNIQUE_ADDRESS
+#warning                                                                                                                                                       \
+    "Compiler does not support [[no_unique_address]] or equivalent, which may lead to incorrect behavior of 0-dimensional accessors and other edge cases where empty base optimization is required for correct layout. Random failures and crashes may occur."
 #endif
 
 #if CELERITY_ACCESSOR_BOUNDARY_CHECK

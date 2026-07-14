@@ -5,8 +5,17 @@
 #include <thread>
 #include <type_traits>
 
-#include <windows.h>
+#ifdef _WIN32
+// Prevent Windows headers from polluting global namespace with min/max macros.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
 
+#include <windows.h>
+#endif
 
 namespace celerity::detail::named_threads {
 

@@ -116,7 +116,7 @@ struct sycl_backend::impl {
 		sycl::context sycl_context;
 		std::vector<sycl::queue> queues;
 		std::optional<detail::thread_queue> submission_thread;
-		std::atomic_flag active_async_error_check = false;
+		std::atomic_flag active_async_error_check; // since c++20 atomic_flag is set to clear by default (false)
 
 		device_state() = default;
 		explicit device_state(const sycl::device& dev) : sycl_device(dev), sycl_context(sycl_device) {}
