@@ -14,6 +14,10 @@ This release is WIP
 - Fix a missing return statement for the `buffer_snapshot` move assignment operator (#335)
 - Re-enable Windows support by fixing a range of Windows-specific and dependency-related issues (#336)
 
+### Internal
+
+- Adapt tests for Windows by disabling implementation-dependent graph printing tests and increasing tolerances for executor timing tests (#337)
+
 ## [0.7.0] - 2025-08-18
 
 This release includes changes that may require adjustments when upgrading:

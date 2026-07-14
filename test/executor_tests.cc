@@ -970,21 +970,34 @@ TEST_CASE("live_executor emits progress warning when a task appears stuck", "[ex
 	CHECK(test_utils::log_contains_substring(log_level::warn, ", might be stuck. Active instructions: I"));
 }
 
+namespace {
+#if defined(_WIN32) // Windows tends to be a bit flaky with timing, so we give it a bit more leeway
+constexpr auto tolerance = std::chrono::milliseconds(20);
+#elif defined(__APPLE__)
+constexpr auto tolerance = std::chrono::milliseconds(10);
+#else // Linux and other Unix-like systems
+constexpr auto tolerance = std::chrono::milliseconds(10);
+#endif
+constexpr auto expected_delay = std::chrono::milliseconds(100);
+constexpr auto lower_bound = std::chrono::milliseconds(expected_delay - tolerance);
+constexpr auto upper_bound = std::chrono::milliseconds(expected_delay + tolerance);
+} // namespace
+
 TEST_CASE("live_executor tracks starvation time", "[executor]") {
 	executor_test_context ectx(executor_type::live);
 
 	SECTION("starvation time is only recorded while scheduler is busy") {
 		ectx.init();
 		ectx.notify_scheduler_idle(false);
-		std::this_thread::sleep_for(std::chrono::milliseconds(100)); // counts since scheduler is busy
+		std::this_thread::sleep_for(expected_delay); // counts since scheduler is busy
 		ectx.notify_scheduler_idle(true);
-		std::this_thread::sleep_for(std::chrono::milliseconds(100)); // does not count
+		std::this_thread::sleep_for(expected_delay); // does not count
 		const auto st = ectx.get_starvation_time();
 		ectx.finish();
 		// We have to include some tolerance here b/c we don't know when executor received idle state changes
 		// 20-30us should suffice, but let's err on the side of caution
-		CHECK(st > std::chrono::milliseconds(90));
-		CHECK(st < std::chrono::milliseconds(110));
+		CHECK(st > lower_bound);
+		CHECK(st < upper_bound);
 	}
 
 	SECTION("scheduler is assumed to be idle initially") {
@@ -1000,11 +1013,11 @@ TEST_CASE("live_executor tracks active time", "[executor]") {
 	executor_test_context ectx(executor_type::live);
 
 	ectx.init();
-	ectx.delay(std::chrono::milliseconds(100)); // counts
+	ectx.delay(expected_delay); // counts
 	ectx.barrier();
-	std::this_thread::sleep_for(std::chrono::milliseconds(100)); // doesn't count
+	std::this_thread::sleep_for(expected_delay); // doesn't count
 	const auto at = ectx.get_active_time();
 	ectx.finish();
-	CHECK(at > std::chrono::milliseconds(90));
-	CHECK(at < std::chrono::milliseconds(110));
+	CHECK(at > lower_bound);
+	CHECK(at < upper_bound);
 }

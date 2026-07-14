@@ -13,7 +13,19 @@ using namespace celerity::test_utils;
 
 namespace acc = celerity::access;
 
+namespace {
+#ifdef _WIN32 // Windows' std::unordered_map sorts differently than other standard library implementations, which causes the printed graph to differ. Since the
+              // tests at the moment rely on exact string matching, we disable them on Windows until we have a better solution.
+#define SKIP_WIN32_GRAPH_PRINT_UNSUPPORTED()                                                                                                                   \
+	SKIP("At the moment windows graph printing tests are disabled due to issues with the difference in unordered_map between MSVC and other standard library " \
+	     "implementations.");
+#else
+#define SKIP_WIN32_GRAPH_PRINT_UNSUPPORTED()
+#endif
+} // namespace
+
 TEST_CASE("task-graph printing is unchanged", "[print_graph][task-graph]") {
+	SKIP_WIN32_GRAPH_PRINT_UNSUPPORTED();
 	auto tt = test_utils::task_test_context{};
 
 	auto range = celerity::range<1>(64);
@@ -61,6 +73,7 @@ int count_occurences(const std::string& str, const std::string& substr) {
 } // namespace
 
 TEST_CASE("command-graph printing is unchanged", "[print_graph][command-graph]") {
+	SKIP_WIN32_GRAPH_PRINT_UNSUPPORTED();
 	const size_t num_nodes = 4;
 	cdag_test_context cctx(num_nodes);
 
@@ -122,6 +135,7 @@ TEST_CASE("command-graph printing is unchanged", "[print_graph][command-graph]")
 }
 
 TEST_CASE("instruction-graph printing is unchanged", "[print_graph][instruction-graph]") {
+	SKIP_WIN32_GRAPH_PRINT_UNSUPPORTED();
 	const size_t num_nodes = 2;
 	const node_id local_nid = 1;
 	const size_t num_local_devices = 2;
@@ -290,6 +304,7 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "buffer debug names show up in the
 }
 
 TEST_CASE_METHOD(test_utils::runtime_fixture, "full graph is printed if CELERITY_PRINT_GRAPHS is set", "[print_graph]") {
+	SKIP_WIN32_GRAPH_PRINT_UNSUPPORTED();
 	env::scoped_test_environment tenv(print_graphs_env_setting);
 
 	queue q;
