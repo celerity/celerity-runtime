@@ -285,6 +285,7 @@ set(CELERITY_DETAIL_HAS_NAMED_THREADS OFF)
 
 if(WIN32)
   set(SOURCES ${SOURCES} src/platform_specific/affinity.win.cc)
+  set(SOURCES ${SOURCES} src/platform_specific/affinity_win32_adapter.cc)
   set(SOURCES ${SOURCES} src/platform_specific/named_threads.win.cc)
   set(CELERITY_DETAIL_HAS_NAMED_THREADS ON)
 elseif(UNIX)

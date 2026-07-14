@@ -12,8 +12,11 @@
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>
+
+#if __has_include(<pthread.h>) && __has_include(<sched.h>)
 #include <pthread.h>
 #include <sched.h>
+#endif
 
 #include "log.h"
 #include "named_threads.h"

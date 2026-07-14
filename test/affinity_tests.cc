@@ -62,12 +62,6 @@ class raii_test_runtime {
 	raii_test_runtime& operator=(raii_test_runtime&&) = delete;
 };
 
-#ifdef _WIN32
-#define SKIP_UNSUPPORTED() SKIP("Affinity is not supported on Windows");
-#else
-#define SKIP_UNSUPPORTED()
-#endif
-
 core_set get_current_cores() {
 	cpu_set_t mask = {};
 	REQUIRE(sched_getaffinity(0, sizeof(cpu_set_t), &mask) == 0);
@@ -138,7 +132,6 @@ TEST_CASE("thread pinning environment parsing error handling", "[affinity][confi
 }
 
 TEST_CASE("a warning is emitted if insufficient cores are available", "[affinity]") {
-	SKIP_UNSUPPORTED();
 	test_utils::allow_max_log_level(detail::log_level::warn);
 	raii_affinity_masking mask({0, 1, 2});
 
@@ -155,7 +148,6 @@ TEST_CASE("a warning is emitted if insufficient cores are available", "[affinity
 }
 
 TEST_CASE("a warning is emitted if hardcoded threads are not available to this process", "[affinity]") {
-	SKIP_UNSUPPORTED();
 	test_utils::allow_max_log_level(detail::log_level::warn);
 	raii_affinity_masking mask({0, 1, 2, 3, 4});
 
@@ -164,7 +156,6 @@ TEST_CASE("a warning is emitted if hardcoded threads are not available to this p
 }
 
 TEST_CASE("do not plan for device submission threads if they are unused", "[affinity]") {
-	SKIP_UNSUPPORTED();
 	raii_affinity_masking mask({1, 2, 3, 4});
 	const detail::thread_pinning::runtime_configuration cfg = {.enabled = true, .num_devices = 10, .use_backend_device_submission_threads = false};
 	detail::thread_pinning::thread_pinner pinner(cfg);
@@ -172,7 +163,6 @@ TEST_CASE("do not plan for device submission threads if they are unused", "[affi
 }
 
 TEST_CASE_METHOD(test_utils::runtime_fixture, "runtime warns on manual core list of wrong size", "[affinity][config]") {
-	SKIP_UNSUPPORTED();
 	test_utils::allow_max_log_level(detail::log_level::warn);
 	env::scoped_test_environment ste("CELERITY_THREAD_PINNING", "1,2");
 	{ raii_test_runtime rt(1); }
@@ -182,7 +172,6 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "runtime warns on manual core list
 // SimSYCL has no backend submission thread support
 #if !CELERITY_SYCL_IS_SIMSYCL
 TEST_CASE_METHOD(test_utils::runtime_fixture, "runtime system claims to pin its threads as desired", "[affinity][runtime]") {
-	SKIP_UNSUPPORTED();
 	auto test = [](const std::vector<uint32_t>& core_ids) {
 		if(!have_cores({core_ids.cbegin(), core_ids.cend()})) {
 			SKIP("Skipping test because not all needed cores are available");
@@ -218,7 +207,6 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "runtime system claims to pin its 
 #endif // !CELERITY_SYCL_IS_SIMSYCL
 
 TEST_CASE_METHOD(test_utils::runtime_fixture, "when pinning disabled: rt warns on insufficient threads and does not pin", "[affinity][runtime]") {
-	SKIP_UNSUPPORTED();
 	env::scoped_test_environment ste("CELERITY_THREAD_PINNING", "false");
 	raii_affinity_masking mask({0});
 
@@ -230,7 +218,6 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "when pinning disabled: rt warns o
 }
 
 TEST_CASE_METHOD(test_utils::runtime_fixture, "the application thread is actually pinned when pinning is enabled", "[affinity][runtime]") {
-	SKIP_UNSUPPORTED();
 	env::scoped_test_environment ste("CELERITY_THREAD_PINNING", "auto");
 
 	// By using a custom mask we also validate that the mechanism which only selects cores that are available to the process works correctly
@@ -254,7 +241,6 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "the application thread is actuall
 }
 
 TEST_CASE_METHOD(test_utils::runtime_fixture, "when pinning is disabled, no threads are pinned", "[affinity][runtime]") {
-	SKIP_UNSUPPORTED();
 	env::scoped_test_environment ste("CELERITY_THREAD_PINNING", "false");
 	const auto initial_core_set = get_current_cores();
 
@@ -268,7 +254,6 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "when pinning is disabled, no thre
 }
 
 TEST_CASE_METHOD(test_utils::runtime_fixture, "rt warns when the application thread changes pinning unexpectedly", "[affinity][runtime]") {
-	SKIP_UNSUPPORTED();
 	test_utils::allow_max_log_level(detail::log_level::warn);
 	env::scoped_test_environment ste("CELERITY_THREAD_PINNING", "auto");
 
@@ -295,8 +280,6 @@ TEST_CASE_METHOD(test_utils::runtime_fixture, "rt warns when the application thr
 }
 
 TEST_CASE("multiple subsequent non-overlapping pinner lifetimes are handled correctly", "[affinity]") {
-	SKIP_UNSUPPORTED();
-
 	const core_set process_mask = {3, 4, 5, 6, 7};
 	if(!have_cores(process_mask)) {
 		SKIP("Skipping test because not all needed cores are available");
@@ -325,7 +308,6 @@ TEST_CASE("multiple subsequent non-overlapping pinner lifetimes are handled corr
 }
 
 TEST_CASE("trying to initialize two pinning mechanisms with overlapping lifetime is an error", "[affinity]") {
-	SKIP_UNSUPPORTED();
 	test_utils::allow_max_log_level(detail::log_level::err);
 	detail::thread_pinning::thread_pinner pinner({.enabled = true, .num_devices = 1});
 	detail::thread_pinning::thread_pinner another_pinner({.enabled = true, .num_devices = 1});
@@ -333,7 +315,6 @@ TEST_CASE("trying to initialize two pinning mechanisms with overlapping lifetime
 }
 
 TEST_CASE("application threads are not pinned if their affinity mask is modified externally", "[affinity]") {
-	SKIP_UNSUPPORTED();
 	test_utils::allow_max_log_level(detail::log_level::warn);
 	const core_set process_mask = {0, 1, 2, 3};
 	if(!have_cores(process_mask)) {
@@ -355,3 +336,106 @@ TEST_CASE("application threads are not pinned if their affinity mask is modified
 	CHECK(get_current_cores() == process_mask);
 	CHECK(test_utils::log_contains_substring(detail::log_level::warn, "Affinity mask for the application thread was modified, will not pin it."));
 }
+
+
+#ifdef _WIN32
+struct test_topology_policy {
+	struct group {
+		unsigned count;
+	};
+
+	static inline const std::vector<group>* groups = nullptr;
+
+	static WORD get_group_count() { return static_cast<WORD>(groups ? groups->size() : 1); }
+
+	static unsigned get_proc_count(WORD g) { return groups ? (*groups)[g].count : 0; }
+};
+
+struct scoped_topology {
+	std::vector<test_topology_policy::group> m_groups;
+
+	scoped_topology(std::initializer_list<win32_pthread_detail::cpu_topology_entry> entries) {
+		for(const auto& e : entries) {
+			m_groups.push_back({e.count});
+		}
+		test_topology_policy::groups = &m_groups;
+	}
+	~scoped_topology() { test_topology_policy::groups = nullptr; }
+	scoped_topology(const scoped_topology&) = delete;
+	scoped_topology(scoped_topology&&) = delete;
+	scoped_topology& operator=(const scoped_topology&) = delete;
+	scoped_topology& operator=(scoped_topology&&) = delete;
+};
+
+
+TEST_CASE("single group cpuset produces correct mask") {
+	test_utils::allow_max_log_level(detail::log_level::warn);
+
+	scoped_topology topo({{0, 64}});
+
+	cpu_set_t set{};
+	CPU_ZERO(&set);
+	CPU_SET(0, &set);
+	CPU_SET(1, &set);
+
+	GROUP_AFFINITY ga{};
+	REQUIRE(win32_pthread_detail::cpuset_to_group_affinity<test_topology_policy>(&set, ga));
+
+	CHECK(ga.Group == 0);
+	CHECK(ga.Mask == 0b11);
+}
+
+TEST_CASE("multi-group cpuset triggers warning") {
+	test_utils::allow_max_log_level(detail::log_level::warn);
+
+	scoped_topology topo({{0, 64}, {1, 64}});
+
+	cpu_set_t set{};
+	CPU_ZERO(&set);
+	CPU_SET(0, &set);  // group 0
+	CPU_SET(64, &set); // group 1
+
+	GROUP_AFFINITY ga{};
+	CHECK_FALSE(win32_pthread_detail::cpuset_to_group_affinity<test_topology_policy>(&set, ga));
+	CHECK(test_utils::log_contains_substring(detail::log_level::warn, "Affinity mask spans multiple processor groups"));
+}
+
+TEST_CASE("single cpu produces single-bit mask") {
+	scoped_topology topo({{0, 64}, {1, 64}});
+
+	cpu_set_t set{};
+	CPU_ZERO(&set);
+	CPU_SET(0, &set);
+
+	GROUP_AFFINITY ga{};
+	REQUIRE(win32_pthread_detail::cpuset_to_group_affinity<test_topology_policy>(&set, ga));
+
+	CHECK(ga.Group == 0);
+	CHECK(ga.Mask == 1);
+}
+
+TEST_CASE("empty cpuset is rejected") {
+	scoped_topology topo({{0, 64}});
+
+	cpu_set_t set{};
+	CPU_ZERO(&set);
+
+	GROUP_AFFINITY ga{};
+	CHECK_FALSE(win32_pthread_detail::cpuset_to_group_affinity<test_topology_policy>(&set, ga));
+}
+
+TEST_CASE("cpu in second group maps to correct group and bit") {
+	scoped_topology topo({{0, 64}, {1, 64}});
+
+	cpu_set_t set{};
+	CPU_ZERO(&set);
+	CPU_SET(64, &set); // first CPU of group 1
+
+	GROUP_AFFINITY ga{};
+	REQUIRE(win32_pthread_detail::cpuset_to_group_affinity<test_topology_policy>(&set, ga));
+
+	CHECK(ga.Group == 1);
+	CHECK(ga.Mask == 1); // bit 0 within the group
+}
+
+#endif // _WIN32
