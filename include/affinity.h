@@ -6,6 +6,10 @@
 
 #include "named_threads.h"
 
+#ifdef _WIN32
+#include "platform_specific/affinity_win32_adapter.h"
+#endif
+
 // The goal of this thread pinning mechanism, when enabled, is to ensure that threads which benefit from fast communication
 // are pinned to cores that are close to each other in terms of cache hierarchy.
 // It currently accomplishes this by pinning threads to cores in a round-robin fashion according to their order in the `named_threads::thread_type` enum.

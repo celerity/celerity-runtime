@@ -10,6 +10,10 @@ Versioning](http://semver.org/spec/v2.0.0.html).
 
 This release is WIP
 
+### Added
+
+- Add preliminary support for thread affinity on Windows by emulating the POSIX interface (#338)
+
 ### Fixed
 - Fix a missing return statement for the `buffer_snapshot` move assignment operator (#335)
 - Re-enable Windows support by fixing a range of Windows-specific and dependency-related issues (#336)
