@@ -1,4 +1,8 @@
+#ifdef _WIN32
+// pthread isn't available on Windows; only include on Unix-like systems
+#else
 #include <pthread.h>
+#endif
 
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>

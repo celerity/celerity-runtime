@@ -9,7 +9,7 @@
 #include <catch2/reporters/catch_reporter_registrars.hpp>
 
 #include <spdlog/details/os.h>
-#include <spdlog/sinks/ansicolor_sink.h>
+#include <spdlog/sinks/ansicolor_sink-inl.h> // we need this inl as windows has problems with the non-inlined version
 #include <spdlog/sinks/sink.h>
 
 namespace celerity::test_utils_detail {

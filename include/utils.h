@@ -7,6 +7,7 @@
 #include <concepts>
 #include <cstddef>
 #include <functional>
+#include <iterator>
 #include <string>
 #include <string_view>
 #include <type_traits>
