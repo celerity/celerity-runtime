@@ -12,16 +12,22 @@ namespace celerity::detail {
 class cgf_diagnostics {
   public:
 	static void make_available() {
-		assert(m_instance == nullptr);
+		assert(!m_is_available);
 		m_instance = std::unique_ptr<cgf_diagnostics>(new cgf_diagnostics());
+		m_is_available = true;
 	}
 
-	static bool is_available() { return m_instance != nullptr; }
+	static bool is_available() { return m_instance != nullptr && m_is_available; }
 
-	static void teardown() { m_instance.reset(); }
+	static void teardown() {
+		// We don't want to reset the instance, because that would cause destruction order issues.
+		// Instead, we just mark this instance as unavailable.
+		// m_instance is handled by the unique_ptr anyway, so it will be safely destroyed.
+		m_is_available = false;
+	}
 
 	static cgf_diagnostics& get_instance() {
-		assert(m_instance != nullptr);
+		assert(m_instance != nullptr && m_is_available);
 		return *m_instance;
 	}
 
@@ -64,6 +70,7 @@ class cgf_diagnostics {
 
   private:
 	inline static thread_local std::unique_ptr<cgf_diagnostics> m_instance; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+	inline static thread_local bool m_is_available;                         // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 	bool m_is_checking = false;
 	std::optional<target> m_expected_target = std::nullopt;
