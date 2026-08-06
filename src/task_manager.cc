@@ -189,7 +189,7 @@ namespace detail {
 	void task_manager::invoke_callbacks(const task* tsk) const {
 		if(m_delegate != nullptr) { m_delegate->task_created(tsk); }
 		if(m_task_recorder != nullptr) {
-			m_task_recorder->record(task_record(*tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }));
+			m_task_recorder->record(std::make_unique<task_record>(*tsk, [this](const buffer_id bid) { return m_buffers.at(bid).debug_name; }));
 		}
 	}
 
@@ -198,6 +198,7 @@ namespace detail {
 		depender.add_dependency({&dependee, kind, origin});
 		m_execution_front.erase(&dependee);
 		m_max_pseudo_critical_path_length = std::max(m_max_pseudo_critical_path_length, depender.get_pseudo_critical_path_length());
+		if(m_task_recorder != nullptr) { m_task_recorder->record_dependency({dependee.get_id(), depender.get_id(), kind, origin}); }
 	}
 
 	bool task_manager::need_new_horizon() const {

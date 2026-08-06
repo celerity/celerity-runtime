@@ -85,9 +85,42 @@ void format_requirements(std::string& label, const reduction_list& reductions, c
 	}
 }
 
+template <typename IdType>
+void print_dependencies(
+    const std::vector<dependency_record<IdType>>& dependencies, std::string& dot,
+    const std::function<std::string(IdType)> id_transform = [](IdType id) { return std::to_string(id); }) {
+	// Sort and deduplicate edges
+	struct dependency_edge {
+		IdType predecessor;
+		IdType successor;
+	};
+	struct dependency_edge_order {
+		bool operator()(const dependency_edge& lhs, const dependency_edge& rhs) const {
+			if(lhs.predecessor < rhs.predecessor) return true;
+			if(lhs.predecessor > rhs.predecessor) return false;
+			return lhs.successor < rhs.successor;
+		}
+	};
+	struct dependency_kind_order {
+		bool operator()(const std::pair<dependency_kind, dependency_origin>& lhs, const std::pair<dependency_kind, dependency_origin>& rhs) const {
+			return (lhs.first == dependency_kind::true_dep && rhs.first != dependency_kind::true_dep);
+		}
+	};
+	std::map<dependency_edge, std::set<std::pair<dependency_kind, dependency_origin>, dependency_kind_order>, dependency_edge_order>
+	    dependencies_by_edge; // ordered and unique
+	for(const auto& dep : dependencies) {
+		dependencies_by_edge[{dep.predecessor, dep.successor}].insert(std::pair{dep.kind, dep.origin});
+	}
+	for(const auto& [edge, meta] : dependencies_by_edge) {
+		// If there's at most two edges, take the first one (likely a true dependency followed by an anti-dependency). If there's more, bail (don't style).
+		const auto style = meta.size() <= 2 ? dependency_style(meta.begin()->first, meta.begin()->second) : std::string{};
+		fmt::format_to(std::back_inserter(dot), "{}->{}[{}];", id_transform(edge.predecessor), id_transform(edge.successor), style);
+	}
+}
+
 std::string get_task_label(const task_record& tsk) {
 	std::string label;
-	fmt::format_to(std::back_inserter(label), "T{}", tsk.tid);
+	fmt::format_to(std::back_inserter(label), "T{}", tsk.id);
 	if(!tsk.debug_name.empty()) { fmt::format_to(std::back_inserter(label), " \"{}\"", utils::escape_for_dot_label(tsk.debug_name)); }
 
 	fmt::format_to(std::back_inserter(label), "<br/><b>{}</b>", task_type_string(tsk.type));
@@ -107,15 +140,14 @@ std::string make_graph_preamble(const std::string& title) { return fmt::format("
 std::string print_task_graph(const task_recorder& recorder, const std::string& title) {
 	std::string dot = make_graph_preamble(title);
 
-	CELERITY_DEBUG("print_task_graph, {} entries", recorder.get_tasks().size());
+	CELERITY_DEBUG("print_task_graph, {} entries", recorder.get_graph_nodes().size());
 
-	for(const auto& tsk : recorder.get_tasks()) {
-		const char* shape = tsk.type == task_type::epoch || tsk.type == task_type::horizon ? "ellipse" : "box style=rounded";
-		fmt::format_to(std::back_inserter(dot), "{}[shape={} label=<{}>];", tsk.tid, shape, get_task_label(tsk));
-		for(auto d : tsk.dependencies) {
-			fmt::format_to(std::back_inserter(dot), "{}->{}[{}];", d.node, tsk.tid, dependency_style(d.kind, d.origin));
-		}
+	for(const auto& tsk : recorder.get_graph_nodes()) {
+		const char* const shape = tsk->type == task_type::epoch || tsk->type == task_type::horizon ? "ellipse" : "box style=rounded";
+		fmt::format_to(std::back_inserter(dot), "{}[shape={} label=<{}>];", tsk->id, shape, get_task_label(*tsk));
 	}
+
+	print_dependencies(recorder.get_dependencies(), dot);
 
 	dot += "}";
 	return dot;
@@ -135,7 +167,7 @@ std::string print_command_graph(const node_id local_nid, const command_recorder&
 	std::string main_dot;
 	std::map<task_id, std::string> task_subgraph_dot; // this map must be ordered!
 
-	const auto local_to_global_id = [local_nid](uint64_t id) {
+	const auto local_to_global_id = [local_nid](auto id) -> std::string {
 		// IDs in the DOT language may not start with a digit (unless the whole thing is a numeral)
 		return fmt::format("id_{}_{}", local_nid, id);
 	};
@@ -241,33 +273,7 @@ std::string print_command_graph(const node_id local_nid, const command_recorder&
 		    });
 	};
 
-	// Sort and deduplicate edges
-	struct dependency_edge {
-		command_id predecessor;
-		command_id successor;
-	};
-	struct dependency_edge_order {
-		bool operator()(const dependency_edge& lhs, const dependency_edge& rhs) const {
-			if(lhs.predecessor < rhs.predecessor) return true;
-			if(lhs.predecessor > rhs.predecessor) return false;
-			return lhs.successor < rhs.successor;
-		}
-	};
-	struct dependency_kind_order {
-		bool operator()(const std::pair<dependency_kind, dependency_origin>& lhs, const std::pair<dependency_kind, dependency_origin>& rhs) const {
-			return (lhs.first == dependency_kind::true_dep && rhs.first != dependency_kind::true_dep);
-		}
-	};
-	std::map<dependency_edge, std::set<std::pair<dependency_kind, dependency_origin>, dependency_kind_order>, dependency_edge_order>
-	    dependencies_by_edge; // ordered and unique
-	for(const auto& dep : recorder.get_dependencies()) {
-		dependencies_by_edge[{dep.predecessor, dep.successor}].insert(std::pair{dep.kind, dep.origin});
-	}
-	for(const auto& [edge, meta] : dependencies_by_edge) {
-		// If there's at most two edges, take the first one (likely a true dependency followed by an anti-dependency). If there's more, bail (don't style).
-		const auto style = meta.size() <= 2 ? dependency_style(meta.begin()->first, meta.begin()->second) : std::string{};
-		fmt::format_to(std::back_inserter(main_dot), "{}->{}[{}];", local_to_global_id(edge.predecessor), local_to_global_id(edge.successor), style);
-	}
+	print_dependencies<command_id>(recorder.get_dependencies(), main_dot, local_to_global_id);
 
 	std::string result_dot = make_graph_preamble(title);
 	for(auto& [_, sg_dot] : task_subgraph_dot) {

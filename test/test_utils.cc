@@ -341,10 +341,6 @@ std::string make_test_graph_title(const std::string& type, const size_t num_node
 	return title;
 }
 
-task_test_context::~task_test_context() {
-	if(g_print_graphs) { fmt::print("\n{}\n", detail::print_task_graph(trec, make_test_graph_title("Task Graph"))); }
-}
-
 } // namespace celerity::test_utils
 
 CATCH_REGISTER_LISTENER(celerity::test_utils_detail::global_setup_and_teardown);
