@@ -70,7 +70,7 @@ TEST_CASE("horizons prevent tracking data structures from growing indefinitely",
 			ret.offset = id<2>(t, 0);
 			return ret;
 		};
-		cctx.device_compute<class UKN(timestep)>(range<1>(buffer_width)).read(buf_a, read_accessor).discard_write(buf_a, write_accessor).submit();
+		cctx.device_compute(range<1>(buffer_width)).read(buf_a, read_accessor).discard_write(buf_a, write_accessor).submit();
 
 		auto& ggen = cctx.get_graph_generator(0);
 
@@ -106,10 +106,10 @@ TEST_CASE("horizons correctly deal with antidependencies", "[horizon][command-gr
 	auto buf_b = cctx.create_buffer<1>(full_range);
 
 	// write to buf_a and buf_b
-	cctx.device_compute<class UKN(init_a_b)>(full_range).discard_write(buf_a, acc::one_to_one{}).discard_write(buf_b, acc::one_to_one{}).submit();
+	cctx.device_compute(full_range).discard_write(buf_a, acc::one_to_one{}).discard_write(buf_b, acc::one_to_one{}).submit();
 
 	// then read from buf_b to later induce anti-dependence
-	cctx.device_compute<class UKN(read_b_before_first_horizon)>(full_range).read(buf_b, acc::one_to_one{}).submit();
+	cctx.device_compute(full_range).read(buf_b, acc::one_to_one{}).submit();
 
 	// here, the first horizon should have been generated
 	const auto first_horizon = cctx.query<horizon_command_record>();
@@ -118,11 +118,11 @@ TEST_CASE("horizons correctly deal with antidependencies", "[horizon][command-gr
 	// do 3 more read/writes on buf_a to generate another horizon and apply the first one
 	task_id buf_a_rw = -1;
 	for(int i = 0; i < 3; ++i) {
-		buf_a_rw = cctx.device_compute<class UKN(read_b_before_first_horizon)>(full_range).read_write(buf_a, acc::one_to_one{}).submit();
+		buf_a_rw = cctx.device_compute(full_range).read_write(buf_a, acc::one_to_one{}).submit();
 	}
 
 	// now, do a write on buf_b which should generate an anti-dependency on the first horizon
-	auto write_b_after_first_horizon = cctx.device_compute<class UKN(write_b_after_first_horizon)>(full_range)
+	auto write_b_after_first_horizon = cctx.device_compute(full_range)
 	                                       // introduce an artificial true dependency to avoid the fallback epoch dependency generated for ordering
 	                                       .read(buf_a, acc::one_to_one{})
 	                                       .discard_write(buf_b, acc::one_to_one{})
@@ -159,7 +159,7 @@ TEST_CASE("previous horizons are used as last writers for host-initialized buffe
 		// We need 7 tasks to generate a pseudo-critical path length of 6 (3x2 horizon step size),
 		// and another one that triggers the actual deferred deletion.
 		for(int i = 0; i < 8; ++i) {
-			cctx.device_compute<class UKN(generate_horizon)>(buf_range).discard_write(buf, acc::one_to_one{}).submit();
+			cctx.device_compute(buf_range).discard_write(buf, acc::one_to_one{}).submit();
 			const auto current_horizon = task_manager_testspy::get_current_horizon(cctx.get_task_manager());
 			if(current_horizon != nullptr && current_horizon->get_id() > last_horizon_reached) {
 				cctx.get_task_graph().erase_before_epoch(last_horizon_reached);

@@ -41,12 +41,6 @@
 #include "testspy/scheduler_testspy.h"
 #include "types.h"
 
-// To avoid having to come up with tons of unique kernel names, we simply use the CPP counter.
-// This is non-standard but widely supported.
-#define _UKN_CONCAT2(x, y) x##_##y
-#define _UKN_CONCAT(x, y) _UKN_CONCAT2(x, y)
-#define UKN(name) _UKN_CONCAT(name, __COUNTER__)
-
 /**
  * REQUIRE_LOOP is a utility macro for performing Catch2 REQUIRE assertions inside of loops.
  * The advantage over using a regular REQUIRE is that the number of reported assertions is much lower,

@@ -235,27 +235,27 @@ namespace detail {
 
 		auto buf_0 = tt.mbf.create_buffer(range<1>{1});
 
-		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_conflict)>(tt.tm, [&](handler& cgh) {
+		CHECK_THROWS(test_utils::add_compute_task(tt.tm, [&](handler& cgh) {
 			test_utils::add_reduction(cgh, tt.mrf, buf_0, false);
 			test_utils::add_reduction(cgh, tt.mrf, buf_0, false);
 		}));
 
-		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tt.tm, [&](handler& cgh) {
+		CHECK_THROWS(test_utils::add_compute_task(tt.tm, [&](handler& cgh) {
 			test_utils::add_reduction(cgh, tt.mrf, buf_0, false);
 			buf_0.get_access<access_mode::read>(cgh, fixed<1>({0, 1}));
 		}));
 
-		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tt.tm, [&](handler& cgh) {
+		CHECK_THROWS(test_utils::add_compute_task(tt.tm, [&](handler& cgh) {
 			test_utils::add_reduction(cgh, tt.mrf, buf_0, false);
 			buf_0.get_access<access_mode::write>(cgh, fixed<1>({0, 1}));
 		}));
 
-		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tt.tm, [&](handler& cgh) {
+		CHECK_THROWS(test_utils::add_compute_task(tt.tm, [&](handler& cgh) {
 			test_utils::add_reduction(cgh, tt.mrf, buf_0, false);
 			buf_0.get_access<access_mode::read_write>(cgh, fixed<1>({0, 1}));
 		}));
 
-		CHECK_THROWS(test_utils::add_compute_task<class UKN(task_reduction_access_conflict)>(tt.tm, [&](handler& cgh) {
+		CHECK_THROWS(test_utils::add_compute_task(tt.tm, [&](handler& cgh) {
 			test_utils::add_reduction(cgh, tt.mrf, buf_0, false);
 			buf_0.get_access<access_mode::discard_write>(cgh, fixed<1>({0, 1}));
 		}));
@@ -411,7 +411,7 @@ namespace detail {
 		q.submit([&](handler& cgh) {
 			accessor acc_0(buf_0, cgh, read_only);
 			accessor acc_1(buf_1, cgh, one_to_one(), write_only, no_init);
-			cgh.parallel_for<class UKN(device)>(buf_1.get_range(), [=](item<1> it) {
+			cgh.parallel_for(buf_1.get_range(), [=](item<1> it) {
 				acc_1[it] = acc_0;
 				acc_1[it] = *acc_0;
 				acc_1[it] = *acc_0.operator->();
@@ -440,7 +440,7 @@ namespace detail {
 			accessor acc_1d(buf_1d, cgh, all(), write_only, no_init);
 			accessor acc_2d(buf_2d, cgh, all(), write_only, no_init);
 			accessor acc_3d(buf_3d, cgh, all(), write_only, no_init);
-			cgh.parallel_for<class UKN(device)>(range<0>(), [=](item<0>) {
+			cgh.parallel_for(range<0>(), [=](item<0>) {
 				acc_0d = 1;
 				*acc_0d = 1;
 				*acc_0d.operator->() = 1;
@@ -495,12 +495,12 @@ namespace detail {
 		queue q;
 		q.submit([&](handler& cgh) {
 			accessor acc_1(buf_1, cgh, one_to_one(), write_only, no_init);
-			cgh.parallel_for<class UKN(device)>(buf_1.get_range(), [=](item<1> it) { acc_1[it] = value_a; });
+			cgh.parallel_for(buf_1.get_range(), [=](item<1> it) { acc_1[it] = value_a; });
 		});
 		q.submit([&](handler& cgh) {
 			accessor acc_1(buf_1, cgh, one_to_one(), write_only);
 			local_accessor<float, 0> local_0(cgh);
-			cgh.parallel_for<class UKN(device)>(nd_range(buf_1.get_range(), buf_1.get_range()), [=](nd_item<1> it) {
+			cgh.parallel_for(nd_range(buf_1.get_range(), buf_1.get_range()), [=](nd_item<1> it) {
 				if(it.get_local_id() == 0) {
 					local_0 = value_b;
 					*local_0 = value_b;
@@ -540,8 +540,7 @@ namespace detail {
 			device_acc_1 = decltype(device_acc_1)(buf_1, cgh, all());
 			local_acc_0 = decltype(local_acc_0)(cgh);
 			local_acc_1 = decltype(local_acc_1)(1, cgh);
-			cgh.parallel_for<class UKN(device_kernel_1)>(
-			    nd_range(1, 1), [=](nd_item<1> /* it */) { (void)device_acc_0, (void)local_acc_0, (void)device_acc_1, (void)local_acc_1; });
+			cgh.parallel_for(nd_range(1, 1), [=](nd_item<1> /* it */) { (void)device_acc_0, (void)local_acc_0, (void)device_acc_1, (void)local_acc_1; });
 		});
 
 		q.submit([&](handler& cgh) {
@@ -603,7 +602,7 @@ namespace detail {
 			    .get_sycl_queue()
 			    .submit([&](sycl::handler& cgh) {
 				    closure_hydrator::get_instance().hydrate<target::device>(cgh, [&hydrated_acc, acc]() { hydrated_acc = acc; })(/* call to hydrate */);
-				    cgh.single_task<class UKN(nop)>([] {});
+				    cgh.single_task([] {});
 			    })
 			    .wait();
 			CHECK(accessor_testspy::get_pointer(hydrated_acc) == allocation);

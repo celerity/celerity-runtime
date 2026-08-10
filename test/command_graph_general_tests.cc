@@ -31,14 +31,14 @@ TEST_CASE("command_graph_generator generates dependencies for execution commands
 	auto buf1 = cctx.create_buffer(test_range);
 
 	SECTION("if data is produced remotely") {
-		cctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
-		cctx.device_compute<class UKN(task_b)>(test_range).discard_write(buf1, acc::one_to_one{}).submit();
+		cctx.device_compute(test_range).discard_write(buf0, acc::one_to_one{}).submit();
+		cctx.device_compute(test_range).discard_write(buf1, acc::one_to_one{}).submit();
 		const auto tid_c = cctx.master_node_host_task().read(buf0, acc::all{}).read(buf1, acc::all{}).submit();
 		CHECK(cctx.query<await_push_command_record>().on(master_node_id).assert_count(2).successors().contains(cctx.query(tid_c).on(master_node_id)));
 	}
 
 	SECTION("if data is produced remotely but already available from an earlier task") {
-		cctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
+		cctx.device_compute(test_range).discard_write(buf0, acc::one_to_one{}).submit();
 		cctx.master_node_host_task().read(buf0, acc::all{}).submit();
 		const auto await_pushes = cctx.query<await_push_command_record>().on(master_node_id).assert_count(1);
 
@@ -50,9 +50,9 @@ TEST_CASE("command_graph_generator generates dependencies for execution commands
 	}
 
 	SECTION("if data is produced locally") {
-		const auto tid_a = cctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
-		const auto tid_b = cctx.device_compute<class UKN(task_b)>(test_range).discard_write(buf1, acc::one_to_one{}).submit();
-		const auto tid_c = cctx.device_compute<class UKN(task_c)>(test_range).read(buf0, acc::one_to_one{}).read(buf1, acc::one_to_one{}).submit();
+		const auto tid_a = cctx.device_compute(test_range).discard_write(buf0, acc::one_to_one{}).submit();
+		const auto tid_b = cctx.device_compute(test_range).discard_write(buf1, acc::one_to_one{}).submit();
+		const auto tid_c = cctx.device_compute(test_range).read(buf0, acc::one_to_one{}).read(buf1, acc::one_to_one{}).submit();
 		CHECK(cctx.query(tid_a).successors().contains(cctx.query(tid_c)));
 		CHECK(cctx.query(tid_b).successors().contains(cctx.query(tid_c)));
 	}
@@ -66,11 +66,11 @@ TEST_CASE(
 	const range<1> one_third = {test_range / 3};
 	auto buf = cctx.create_buffer(test_range);
 
-	const auto tid_a = cctx.device_compute<class UKN(task_a)>(one_third, id<1>{0 * one_third}).discard_write(buf, acc::one_to_one{}).submit();
-	const auto tid_b = cctx.device_compute<class UKN(task_b)>(one_third, id<1>{1 * one_third}).discard_write(buf, acc::one_to_one{}).submit();
-	const auto tid_c = cctx.device_compute<class UKN(task_c)>(one_third, id<1>{2 * one_third}).discard_write(buf, acc::one_to_one{}).submit();
+	const auto tid_a = cctx.device_compute(one_third, id<1>{0 * one_third}).discard_write(buf, acc::one_to_one{}).submit();
+	const auto tid_b = cctx.device_compute(one_third, id<1>{1 * one_third}).discard_write(buf, acc::one_to_one{}).submit();
+	const auto tid_c = cctx.device_compute(one_third, id<1>{2 * one_third}).discard_write(buf, acc::one_to_one{}).submit();
 
-	const auto tid_d = cctx.device_compute<class UKN(task_d)>(test_range).read(buf, acc::one_to_one{}).submit();
+	const auto tid_d = cctx.device_compute(test_range).read(buf, acc::one_to_one{}).submit();
 	CHECK(cctx.query(tid_a).successors().contains(cctx.query(tid_d)));
 	CHECK(cctx.query(tid_b).successors().contains(cctx.query(tid_d)));
 	CHECK(cctx.query(tid_c).successors().contains(cctx.query(tid_d)));
@@ -86,8 +86,7 @@ TEST_CASE("command_graph_generator generates anti-dependencies for execution com
 	auto buf1 = cctx.create_buffer(test_range);
 
 	// Initialize both buffers
-	const auto tid_a =
-	    cctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).discard_write(buf1, acc::one_to_one{}).submit();
+	const auto tid_a = cctx.device_compute(test_range).discard_write(buf0, acc::one_to_one{}).discard_write(buf1, acc::one_to_one{}).submit();
 
 	// Read from buf0 but overwrite buf1
 	// Importantly, we only read on node 1, making it so that node 0 does not have a true dependency on the previous execution command.
@@ -100,7 +99,7 @@ TEST_CASE("command_graph_generator generates anti-dependencies for execution com
 		}
 		return {};
 	};
-	const auto tid_b = cctx.device_compute<class UKN(task_b)>(test_range).read(buf0, node_1_writes).discard_write(buf1, acc::one_to_one{}).submit();
+	const auto tid_b = cctx.device_compute(test_range).read(buf0, node_1_writes).discard_write(buf1, acc::one_to_one{}).submit();
 
 	CHECK(cctx.query(tid_a).on(0).successors().contains(cctx.query(tid_b).on(0)));
 	CHECK(cctx.query(tid_a).on(1).successors().contains(cctx.query(tid_b).on(1)));
@@ -114,22 +113,22 @@ TEST_CASE("command_graph_generator correctly handles anti-dependency edge cases"
 	auto buf1 = cctx.create_buffer(test_range);
 
 	// task_a writes both buffers
-	cctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).discard_write(buf1, acc::one_to_one{}).submit();
+	cctx.device_compute(test_range).discard_write(buf0, acc::one_to_one{}).discard_write(buf1, acc::one_to_one{}).submit();
 
 	SECTION("correctly handles false anti-dependencies that consume a different buffer from the last writer") {
 		// task_b reads buf0
-		const auto tid_b = cctx.device_compute<class UKN(task_b)>(test_range).read(buf0, acc::one_to_one{}).submit();
+		const auto tid_b = cctx.device_compute(test_range).read(buf0, acc::one_to_one{}).submit();
 		// task_c writes buf1, initially making task_b a potential anti-dependency (as it is a successor of task_a).
-		const auto tid_c = cctx.device_compute<class UKN(task_c)>(test_range).discard_write(buf1, acc::one_to_one{}).submit();
+		const auto tid_c = cctx.device_compute(test_range).discard_write(buf1, acc::one_to_one{}).submit();
 		// However, since the two tasks don't actually touch the same buffers at all, nothing needs to be done.
 		CHECK(cctx.query(tid_b).is_concurrent_with(cctx.query(tid_c)));
 	}
 
 	SECTION("does not consider anti-successors of last writer as potential anti-dependencies") {
 		// task_b writes buf0, making task_a an anti-dependency
-		const auto tid_b = cctx.device_compute<class UKN(task_b)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
+		const auto tid_b = cctx.device_compute(test_range).discard_write(buf0, acc::one_to_one{}).submit();
 		// task_c writes buf1. Since task_b is not a true successor of task_a, we don't consider it as a potential anti-dependency.
-		const auto tid_c = cctx.device_compute<class UKN(task_c)>(test_range).discard_write(buf1, acc::one_to_one{}).submit();
+		const auto tid_c = cctx.device_compute(test_range).discard_write(buf1, acc::one_to_one{}).submit();
 		CHECK(cctx.query(tid_b).is_concurrent_with(cctx.query(tid_c)));
 	}
 }
@@ -141,8 +140,8 @@ TEST_CASE("command_graph_generator generates anti-dependencies onto the original
 	const range<1> test_range = {128};
 	auto buf0 = cctx.create_buffer(test_range);
 
-	const auto tid_a = cctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
-	const auto tid_b = cctx.device_compute<class UKN(task_b)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
+	const auto tid_a = cctx.device_compute(test_range).discard_write(buf0, acc::one_to_one{}).submit();
+	const auto tid_b = cctx.device_compute(test_range).discard_write(buf0, acc::one_to_one{}).submit();
 	CHECK(cctx.query(tid_a).successors().contains(cctx.query(tid_b)));
 }
 
@@ -165,10 +164,10 @@ TEST_CASE(
 		};
 
 		// Both nodes write parts of the buffer.
-		[[maybe_unused]] const auto tid_a = cctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
+		[[maybe_unused]] const auto tid_a = cctx.device_compute(test_range).discard_write(buf0, acc::one_to_one{}).submit();
 
 		// Both nodes read the full buffer, but writing_node also writes to it.
-		const auto tid_b = cctx.device_compute<class UKN(task_b)>(test_range).read(buf0, acc::all{}).discard_write(buf0, only_one_writes).submit();
+		const auto tid_b = cctx.device_compute(test_range).read(buf0, acc::all{}).discard_write(buf0, only_one_writes).submit();
 
 		// Each node pushes data to the other.
 		const auto push_w = cctx.query<push_command_record>().on(writing_node);
@@ -197,15 +196,15 @@ TEST_CASE("command_graph_generator generates anti-dependencies for commands acce
 	auto buf1 = cctx.create_buffer(test_range, true);
 
 	// task_a reads from host-initialized buffer 0
-	const auto tid_a = cctx.device_compute<class UKN(task_a)>(test_range).read(buf0, acc::one_to_one{}).submit();
+	const auto tid_a = cctx.device_compute(test_range).read(buf0, acc::one_to_one{}).submit();
 
 	// task_b writes to the same buffer 0
-	const auto tid_b = cctx.device_compute<class UKN(task_b)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
+	const auto tid_b = cctx.device_compute(test_range).discard_write(buf0, acc::one_to_one{}).submit();
 	// task_b should have an anti-dependency onto task_a
 	CHECK(cctx.query(tid_a).successors().contains(cctx.query(tid_b)));
 
 	// task_c writes to a different buffer 1
-	const auto tid_c = cctx.device_compute<class UKN(task_c)>(test_range).discard_write(buf1, acc::one_to_one{}).submit();
+	const auto tid_c = cctx.device_compute(test_range).discard_write(buf1, acc::one_to_one{}).submit();
 	// task_c should not have any anti-dependencies at all
 	CHECK(cctx.query(tid_c).is_concurrent_with(union_of(cctx.query(tid_a), cctx.query(tid_b))));
 }
