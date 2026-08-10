@@ -31,7 +31,7 @@ namespace detail {
 		q.submit([&](handler& cgh) {
 			auto sum_r = reduction(sum_buf, cgh, sycl::plus<size_t>{}, initialize_to_identity);
 			auto max_r = reduction(max_buf, cgh, size_t{0}, unknown_identity_maximum<size_t>{}, initialize_to_identity);
-			cgh.parallel_for<class UKN(kernel)>(range{N}, id{1}, sum_r, max_r, [=](celerity::item<1> item, auto& sum, auto& max) {
+			cgh.parallel_for(range{N}, id{1}, sum_r, max_r, [=](celerity::item<1> item, auto& sum, auto& max) {
 				sum += item.get_id(0);
 				max.combine(item.get_id(0));
 			});
@@ -58,7 +58,7 @@ namespace detail {
 		const int init = 42;
 		buffer<int, 1> sum(&init, range{1});
 		q.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(kernel)>(
+			cgh.parallel_for(
 			    range{N}, reduction(sum, cgh, sycl::plus<int>{} /* don't initialize to identity */), [=](celerity::item<1> item, auto& sum) { sum += 1; });
 		});
 
@@ -75,12 +75,12 @@ namespace detail {
 
 		buffer<int, 1> sum(range(1));
 		q.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(kernel)>(range{N}, reduction(sum, cgh, sycl::plus<int>{}, sycl::property::reduction::initialize_to_identity{}),
+			cgh.parallel_for(range{N}, reduction(sum, cgh, sycl::plus<int>{}, sycl::property::reduction::initialize_to_identity{}),
 			    [=](celerity::item<1> item, auto& sum) { sum += 1; });
 		});
 
 		q.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(kernel)>(
+			cgh.parallel_for(
 			    range{N}, reduction(sum, cgh, sycl::plus<int>{} /* include previous reduction result */), [=](celerity::item<1> item, auto& sum) { sum += 2; });
 		});
 
@@ -98,7 +98,7 @@ namespace detail {
 
 		buffer<int, 1> sum(range(1));
 		q.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(produce)>(range{N}, reduction(sum, cgh, sycl::plus<int>{}, sycl::property::reduction::initialize_to_identity{}),
+			cgh.parallel_for(range{N}, reduction(sum, cgh, sycl::plus<int>{}, sycl::property::reduction::initialize_to_identity{}),
 			    [=](celerity::item<1> item, auto& sum) { sum += static_cast<int>(item.get_linear_id()); });
 		});
 
@@ -134,7 +134,7 @@ namespace detail {
 			queue q;
 			buffer<int, 1> sum(range(1));
 			q.submit([&](handler& cgh) {
-				cgh.parallel_for<class UKN(produce)>(range{100}, reduction(sum, cgh, sycl::plus<int>{}, sycl::property::reduction::initialize_to_identity{}),
+				cgh.parallel_for(range{100}, reduction(sum, cgh, sycl::plus<int>{}, sycl::property::reduction::initialize_to_identity{}),
 				    [](celerity::item<1> item, auto& sum) {});
 			});
 			q.submit([&](handler& cgh) {
@@ -256,24 +256,24 @@ namespace detail {
 		buffer<int, 1> buff_a(N);
 		q.submit([&](handler& cgh) {
 			accessor write_a{buff_a, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-			cgh.parallel_for<class UKN(write_a)>(range<1>{N}, [=](celerity::item<1> item) { (void)write_a; });
+			cgh.parallel_for(range<1>{N}, [=](celerity::item<1> item) { (void)write_a; });
 		});
 
 		buffer<int, 1> buff_b(N);
 		q.submit([&](handler& cgh) {
 			accessor write_b{buff_b, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-			cgh.parallel_for<class UKN(write_b)>(range<1>{N}, [=](celerity::item<1> item) { (void)write_b; });
+			cgh.parallel_for(range<1>{N}, [=](celerity::item<1> item) { (void)write_b; });
 		});
 
 		q.submit([&](handler& cgh) {
 			accessor read_write_a{buff_a, cgh, celerity::access::one_to_one{}, celerity::read_write};
-			cgh.parallel_for<class UKN(read_write_a)>(range<1>{N}, [=](celerity::item<1> item) { (void)read_write_a; });
+			cgh.parallel_for(range<1>{N}, [=](celerity::item<1> item) { (void)read_write_a; });
 		});
 
 		q.submit([&](handler& cgh) {
 			accessor read_write_a{buff_a, cgh, celerity::access::one_to_one{}, celerity::read_write};
 			accessor read_write_b{buff_b, cgh, celerity::access::one_to_one{}, celerity::read_write};
-			cgh.parallel_for<class UKN(read_write_a_b)>(range<1>{N}, [=](celerity::item<1> item) {
+			cgh.parallel_for(range<1>{N}, [=](celerity::item<1> item) {
 				(void)read_write_a;
 				(void)read_write_b;
 			});
@@ -281,7 +281,7 @@ namespace detail {
 
 		q.submit([&](handler& cgh) {
 			accessor write_a{buff_a, cgh, celerity::access::one_to_one{}, celerity::write_only, celerity::no_init};
-			cgh.parallel_for<class UKN(write_a_again)>(range<1>{N}, [=](celerity::item<1> item) { (void)write_a; });
+			cgh.parallel_for(range<1>{N}, [=](celerity::item<1> item) { (void)write_a; });
 		});
 
 		q.wait();
@@ -328,7 +328,7 @@ namespace detail {
 			accessor acc{buf, cgh, chunk_check_rm, write_only, no_init};
 			// The kernel has a size of 1 in dimension 0, so it will not be split into
 			// more than one chunk (assuming current naive split behavior).
-			cgh.parallel_for<class UKN(kernel)>(buf.get_range(), [=](item<2> it) { acc[it] = 0; });
+			cgh.parallel_for(buf.get_range(), [=](item<2> it) { acc[it] = 0; });
 		});
 	}
 

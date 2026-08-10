@@ -178,31 +178,31 @@ namespace detail {
 
 		CHECK_THROWS_WITH(q.submit([&](handler& cgh) {
 			auto acc = buf.get_access<access_mode::discard_write>(cgh, one_to_one{});
-			cgh.parallel_for<class UKN(kernel)>(range<1>{10}, [=](celerity::item<1>) { (void)acc; });
+			cgh.parallel_for(range<1>{10}, [=](celerity::item<1>) { (void)acc; });
 		}),
 		    "Invalid range mapper dimensionality: 1-dimensional kernel submitted with a requirement whose range mapper is neither invocable for chunk<1> nor "
 		    "(chunk<1>, range<2>) to produce subrange<2>");
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
 			auto acc = buf.get_access<access_mode::discard_write>(cgh, one_to_one{});
-			cgh.parallel_for<class UKN(kernel)>(range<2>{10, 10}, [=](celerity::item<2>) { (void)acc; });
+			cgh.parallel_for(range<2>{10, 10}, [=](celerity::item<2>) { (void)acc; });
 		}));
 
 		CHECK_THROWS_WITH(q.submit([&](handler& cgh) {
 			auto acc = buf.get_access<access_mode::discard_write>(cgh, one_to_one{});
-			cgh.parallel_for<class UKN(kernel)>(range<3>{10, 10, 10}, [=](celerity::item<3>) { (void)acc; });
+			cgh.parallel_for(range<3>{10, 10, 10}, [=](celerity::item<3>) { (void)acc; });
 		}),
 		    "Invalid range mapper dimensionality: 3-dimensional kernel submitted with a requirement whose range mapper is neither invocable for chunk<3> nor "
 		    "(chunk<3>, range<2>) to produce subrange<2>");
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
 			auto acc = buf.get_access<access_mode::read>(cgh, all{});
-			cgh.parallel_for<class UKN(kernel)>(range<3>{10, 10, 10}, [=](celerity::item<3>) { (void)acc; });
+			cgh.parallel_for(range<3>{10, 10, 10}, [=](celerity::item<3>) { (void)acc; });
 		}));
 
 		CHECK_NOTHROW(q.submit([&](handler& cgh) {
 			auto acc = buf.get_access<access_mode::read>(cgh, all{});
-			cgh.parallel_for<class UKN(kernel)>(range<3>{10, 10, 10}, [=](celerity::item<3>) { (void)acc; });
+			cgh.parallel_for(range<3>{10, 10, 10}, [=](celerity::item<3>) { (void)acc; });
 		}));
 	}
 
@@ -252,37 +252,37 @@ namespace detail {
 
 		buffer<float, 1> buf_1{range<1>{2}};
 		CHECK_THROWS(q.submit([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(wrong_size_1)>(
+			cgh.parallel_for(
 			    range<1>{1}, reduction(buf_1, cgh, sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<1>, auto&) {});
 		}));
 
 		buffer<float, 1> buf_4{range<1>{1}};
 		CHECK_NOTHROW(q.submit([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(ok_size_1)>(
+			cgh.parallel_for(
 			    range<1>{1}, reduction(buf_4, cgh, sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<1>, auto&) {});
 		}));
 
 		buffer<float, 2> buf_2{range<2>{1, 2}};
 		CHECK_THROWS(q.submit([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(wrong_size_2)>(
+			cgh.parallel_for(
 			    range<2>{1, 1}, reduction(buf_2, cgh, sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<2>, auto&) {});
 		}));
 
 		buffer<float, 3> buf_3{range<3>{1, 2, 1}};
 		CHECK_THROWS(q.submit([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(wrong_size_3)>(
+			cgh.parallel_for(
 			    range<3>{1, 1, 1}, reduction(buf_3, cgh, sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<3>, auto&) {});
 		}));
 
 		buffer<float, 2> buf_5{range<2>{1, 1}};
 		CHECK_NOTHROW(q.submit([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(ok_size_2)>(
+			cgh.parallel_for(
 			    range<2>{1, 1}, reduction(buf_5, cgh, sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<2>, auto&) {});
 		}));
 
 		buffer<float, 3> buf_6{range<3>{1, 1, 1}};
 		CHECK_NOTHROW(q.submit([&](handler& cgh) { //
-			cgh.parallel_for<class UKN(ok_size_3)>(
+			cgh.parallel_for(
 			    range<3>{1, 1, 1}, reduction(buf_6, cgh, sycl::plus<float>{}, property::reduction::initialize_to_identity()), [=](celerity::item<3>, auto&) {});
 		}));
 	}
@@ -305,7 +305,7 @@ namespace detail {
 		q.submit([&](handler& cgh) {
 			local_accessor<int> la{32, cgh};
 			accessor ga{out, cgh, celerity::access::one_to_one{}, write_only, no_init};
-			cgh.parallel_for<class UKN(device_kernel)>(celerity::nd_range<1>{64, 32}, [=](nd_item<1> item) {
+			cgh.parallel_for(celerity::nd_range<1>{64, 32}, [=](nd_item<1> item) {
 				la[item.get_local_id()] = static_cast<int>(item.get_global_linear_id());
 				group_barrier(item.get_group());
 				ga[item.get_global_id()] = la[item.get_local_range(0) - 1 - item.get_local_id(0)];
@@ -352,14 +352,13 @@ namespace detail {
 		});
 
 		// with name
-		q.submit([=](handler& cgh) { cgh.parallel_for<class UKN(simple_kernel_with_name)>(range<1>{64}, [=](item<1> item) {}); });
-		q.submit([=](handler& cgh) { cgh.parallel_for<class UKN(nd_range_kernel_with_name)>(celerity::nd_range<1>{64, 32}, [=](nd_item<1> item) {}); });
+		q.submit([=](handler& cgh) { cgh.parallel_for(range<1>{64}, [=](item<1> item) {}); });
+		q.submit([=](handler& cgh) { cgh.parallel_for(celerity::nd_range<1>{64, 32}, [=](nd_item<1> item) {}); });
 		q.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(simple_kernel_with_name_and_reductions)>(
-			    range<1>{64}, reduction(b, cgh, sycl::plus<int>{}), [=](item<1> item, auto& r) { r += static_cast<int>(item.get_linear_id()); });
+			cgh.parallel_for(range<1>{64}, reduction(b, cgh, sycl::plus<int>{}), [=](item<1> item, auto& r) { r += static_cast<int>(item.get_linear_id()); });
 		});
 		q.submit([&](handler& cgh) {
-			cgh.parallel_for<class UKN(nd_range_kernel_with_name_and_reductions)>(celerity::nd_range<1>{64, 32}, reduction(b, cgh, sycl::plus<int>{}),
+			cgh.parallel_for(celerity::nd_range<1>{64, 32}, reduction(b, cgh, sycl::plus<int>{}),
 			    [=](nd_item<1> item, auto& r) { r += static_cast<int>(item.get_global_linear_id()); });
 		});
 	}
@@ -806,7 +805,7 @@ namespace detail {
 
 		q.submit([&](handler& cgh) {
 			accessor acc(buf, cgh, one_to_one(), write_only, no_init);
-			cgh.parallel_for<class UKN(init)>(buf.get_range(), [=](celerity::item<2> item) { acc[item] = static_cast<int>(item.get_linear_id()); });
+			cgh.parallel_for(buf.get_range(), [=](celerity::item<2> item) { acc[item] = static_cast<int>(item.get_linear_id()); });
 		});
 
 		const auto check_snapshot = [&](const subrange<2>& sr, const std::vector<int>& expected_data) {
@@ -831,7 +830,7 @@ namespace detail {
 
 		q.submit([&](handler& cgh) {
 			accessor acc(buf, cgh, write_only, no_init);
-			cgh.parallel_for<class UKN(init)>(buf.get_range(), [=](celerity::item<0> item) { *acc = 42; });
+			cgh.parallel_for(buf.get_range(), [=](celerity::item<0> item) { *acc = 42; });
 		});
 
 		const auto snapshot = q.fence(buf).get();
@@ -850,11 +849,11 @@ namespace detail {
 
 		q.submit([&](handler& cgh) {
 			accessor acc_a(buf_a, cgh, write_only, no_init);
-			cgh.parallel_for<class UKN(device)>(range<0>(), [=](item<0> /* it */) { *acc_a = value_b; });
+			cgh.parallel_for(range<0>(), [=](item<0> /* it */) { *acc_a = value_b; });
 		});
 		q.submit([&](handler& cgh) {
 			accessor acc_b(buf_b, cgh, write_only, no_init);
-			cgh.parallel_for<class UKN(device)>(nd_range<0>(), [=](nd_item<0> /* it */) { *acc_b = value_b; });
+			cgh.parallel_for(nd_range<0>(), [=](nd_item<0> /* it */) { *acc_b = value_b; });
 		});
 		q.submit([&](handler& cgh) {
 			accessor acc_c(buf_c, cgh, write_only_host_task, no_init);

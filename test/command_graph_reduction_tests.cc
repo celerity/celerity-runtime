@@ -17,11 +17,10 @@ TEST_CASE("command_graph_generator generates reduction command trees", "[command
 	auto buf0 = cctx.create_buffer(test_range);
 	auto buf1 = cctx.create_buffer(range<1>{1});
 
-	const auto tid_initialize = cctx.device_compute<class UKN(initialize_1)>(test_range).discard_write(buf1, acc::one_to_one{}).submit();
-	const auto tid_produce = cctx.device_compute<class UKN(produce_0)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
-	const auto tid_reduce =
-	    cctx.device_compute<class UKN(reduce)>(test_range).read(buf0, acc::one_to_one{}).reduce(buf1, true /* include_current_buffer_value */).submit();
-	const auto tid_consume = cctx.device_compute<class UKN(consume_1)>(test_range).read(buf1, acc::all{}).submit();
+	const auto tid_initialize = cctx.device_compute(test_range).discard_write(buf1, acc::one_to_one{}).submit();
+	const auto tid_produce = cctx.device_compute(test_range).discard_write(buf0, acc::one_to_one{}).submit();
+	const auto tid_reduce = cctx.device_compute(test_range).read(buf0, acc::one_to_one{}).reduce(buf1, true /* include_current_buffer_value */).submit();
+	const auto tid_consume = cctx.device_compute(test_range).read(buf1, acc::all{}).submit();
 
 	CHECK(has_dependency(cctx.get_task_graph(), tid_reduce, tid_initialize));
 	CHECK(has_dependency(cctx.get_task_graph(), tid_reduce, tid_produce));
@@ -44,8 +43,8 @@ TEST_CASE("single-node configurations do not generate reduction commands", "[com
 	const range<1> test_range = {64};
 	auto buf0 = cctx.create_buffer(range<1>(1));
 
-	cctx.device_compute<class UKN(reduce)>(test_range).reduce(buf0, false /* include_current_buffer_value */).submit();
-	cctx.device_compute<class UKN(consume)>(test_range).read(buf0, acc::all{}).submit();
+	cctx.device_compute(test_range).reduce(buf0, false /* include_current_buffer_value */).submit();
+	cctx.device_compute(test_range).read(buf0, acc::all{}).submit();
 	CHECK(cctx.query<reduction_command_record>().total_count() == 0);
 }
 
@@ -56,10 +55,10 @@ TEST_CASE(
 	const range<1> test_range = {64};
 	auto buf0 = cctx.create_buffer(range<1>(1));
 
-	const auto tid_reduce = cctx.device_compute<class UKN(reduce)>(test_range).reduce(buf0, false /* include_current_buffer_value */).submit();
-	const auto tid_discard = cctx.device_compute<class UKN(discard)>(test_range).discard_write(buf0, acc::one_to_one{}).submit();
+	const auto tid_reduce = cctx.device_compute(test_range).reduce(buf0, false /* include_current_buffer_value */).submit();
+	const auto tid_discard = cctx.device_compute(test_range).discard_write(buf0, acc::one_to_one{}).submit();
 	// Now consume the result to check that the buffer was no longer in a pending reduction state (=> regression test)
-	cctx.device_compute<class UKN(consume)>(test_range).read(buf0, acc::one_to_one{}).submit();
+	cctx.device_compute(test_range).read(buf0, acc::one_to_one{}).submit();
 	CHECK(cctx.query<reduction_command_record>().total_count() == 0);
 	// On node 0 (where buf0 is actually being overwritten) there should be an anti-dependency between the two
 	CHECK(cctx.query(tid_reduce).on(0).successors().contains(cctx.query(tid_discard).on(0)));
@@ -85,7 +84,7 @@ TEST_CASE("command_graph_generator does not generate multiple reduction commands
 	const range<1> test_range = {64};
 	auto buf0 = cctx.create_buffer(range<1>(1));
 
-	cctx.device_compute<class UKN(reduce)>(test_range).reduce(buf0, false /* include_current_buffer_value */).submit();
+	cctx.device_compute(test_range).reduce(buf0, false /* include_current_buffer_value */).submit();
 
 	SECTION("in a single task") {
 		cctx.master_node_host_task().read(buf0, acc::all{}).read_write(buf0, acc::all{}).write(buf0, acc::all{}).submit();
@@ -120,7 +119,7 @@ TEST_CASE("command_graph_generator forwards final reduction result if required b
 	const range<1> test_range = {64};
 	auto buf0 = cctx.create_buffer(range<1>(1));
 
-	cctx.device_compute<class UKN(reduce)>(test_range).reduce(buf0, false /* include_current_buffer_value */).submit();
+	cctx.device_compute(test_range).reduce(buf0, false /* include_current_buffer_value */).submit();
 	cctx.master_node_host_task().read(buf0, acc::all{}).submit();
 	cctx.collective_host_task().read(buf0, acc::all{}).submit();
 
@@ -137,8 +136,8 @@ TEST_CASE("multiple chained reductions produce appropriate data transfers", "[co
 
 	auto buf0 = cctx.create_buffer(range<1>(1));
 
-	cctx.device_compute<class UKN(reduce_a)>(range<1>(num_nodes)).reduce(buf0, false /* include_current_buffer_value */).submit();
-	cctx.device_compute<class UKN(reduce_b)>(range<1>(num_nodes)).reduce(buf0, true /* include_current_buffer_value */).submit();
+	cctx.device_compute(range<1>(num_nodes)).reduce(buf0, false /* include_current_buffer_value */).submit();
+	cctx.device_compute(range<1>(num_nodes)).reduce(buf0, true /* include_current_buffer_value */).submit();
 	const auto reduction1 = cctx.query<reduction_command_record>();
 	CHECK(reduction1.total_count() == 1);
 	cctx.master_node_host_task().read(buf0, acc::all{}).submit();
@@ -169,8 +168,8 @@ TEST_CASE("reductions that overwrite the previous buffer contents do not generat
 		return {};
 	};
 	// Node 1 initializes the buffer, then both nodes reduce into it without keeping the data from task_a.
-	cctx.device_compute<class UKN(task_a)>(test_range).discard_write(buf0, only1).submit();
-	cctx.device_compute<class UKN(task_b)>(test_range).reduce(buf0, false /* include_current_buffer_value */).submit();
+	cctx.device_compute(test_range).discard_write(buf0, only1).submit();
+	cctx.device_compute(test_range).reduce(buf0, false /* include_current_buffer_value */).submit();
 	// This should not generate any data transfers.
 	CHECK(cctx.query<push_command_record>().total_count() == 0);
 	CHECK(cctx.query<await_push_command_record>().total_count() == 0);
@@ -180,7 +179,7 @@ TEST_CASE("nodes that do not own pending reduction don't include it in final red
 	cdag_test_context cctx(3);
 	auto buf0 = cctx.create_buffer(range<1>(1));
 
-	cctx.device_compute<class UKN(reduce)>(nd_range<1>(64, 32)).reduce(buf0, false /* include_current_buffer_value */).submit();
+	cctx.device_compute(nd_range<1>(64, 32)).reduce(buf0, false /* include_current_buffer_value */).submit();
 	CHECK(cctx.query<execution_command_record>().total_count() == 2);
 
 	cctx.master_node_host_task().read(buf0, acc::all{}).submit();
@@ -197,7 +196,7 @@ TEST_CASE("reductions that do not include the current value generate anti-depend
 	auto buf0 = cctx.create_buffer(range<1>(1));
 
 	const auto tid_write = cctx.master_node_host_task().discard_write(buf0, acc::all{}).submit();
-	const auto tid_reduce = cctx.device_compute<class UKN(reduce)>(range<1>(1)).reduce(buf0, false /* include_current_buffer_value */).submit();
+	const auto tid_reduce = cctx.device_compute(range<1>(1)).reduce(buf0, false /* include_current_buffer_value */).submit();
 	CHECK(cctx.query(tid_write).successors().contains(cctx.query(tid_reduce)));
 }
 
