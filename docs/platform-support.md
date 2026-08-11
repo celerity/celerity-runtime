@@ -45,6 +45,7 @@ Those are (CRT = Intel Compute Runtime, L0 = oneAPI Level Zero):
 | AdaptiveCpp | [`v24.06.0`](https://github.com/AdaptiveCpp/AdaptiveCpp/tree/v24.06.0) (Clang 14.0, CUDA 11.8.0)   | Ubuntu 22.04 | NVIDIA RTX 2070 | Debug, Release |
 | AdaptiveCpp | [`HEAD`](https://github.com/AdaptiveCpp/AdaptiveCpp) (Clang 18.0, CUDA 12.5.0)\*                   | Ubuntu 24.04 | NVIDIA RTX 2070 | Debug, Release |
 | SimSYCL     | [`HEAD`](https://github.com/celerity/SimSYCL) (GCC 13.2)                                           | Ubuntu 24.04 | (None)          | Debug, Release |
+| SimSYCL     | [`HEAD`](https://github.com/celerity/SimSYCL) (Clang 20.1.8)                                       | Windows      | (None)          | Debug, Release |
 
 \* currently requires a patch for an illegal macro definition in CUDA:
 

@@ -1,0 +1,133 @@
+name: Celerity Windows CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test-windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [clang-cl] # future proofing: potentially add more compilers in the future like msvc...
+        build_type: [Debug, Release]
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      SIMSYCL_DIR: ${{ github.workspace }}\SimSYCL
+      SIMSYCL_INSTALL_DIR: ${{ github.workspace }}\simsycl-install
+      SIMSYCL_SYSTEM: ${{ github.workspace }}\ci\simsycl-system.json
+      EXTRA_LINKER_FLAGS: ""
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Locate preinstalled LLVM
+        if: matrix.compiler == 'clang-cl'
+        run: |
+          $llvmDir = "C:\Program Files\LLVM"
+          $clangMajor = (Get-ChildItem "$llvmDir\lib\clang").Name
+          clang-cl.exe --version
+          "LIB=$llvmDir\lib\clang\$clangMajor\lib\windows;$env:LIB" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "EXTRA_LINKER_FLAGS=clang_rt.builtins-x86_64.lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Locate preinstalled vcpkg
+        run: |
+          "BOOST_PREFIX_PATH=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $commit = git -C "$env:VCPKG_INSTALLATION_ROOT" rev-parse --short HEAD
+          "VCPKG_COMMIT=$commit" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Cache vcpkg-built Boost.Context
+        id: cache-boost
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.BOOST_PREFIX_PATH }}
+          key: windows-vcpkg-boost-context-${{ env.VCPKG_COMMIT }}
+
+      - name: Build Boost.Context via vcpkg
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        run: '& "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install boost-context:x64-windows-static-md'
+
+      - name: Resolve SimSYCL commit
+        run: |
+          $sha = (git ls-remote https://github.com/celerity/SimSYCL.git HEAD).Split("`t")[0]
+          "SIMSYCL_COMMIT=$sha" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Cache SimSYCL install
+        id: cache-simsycl
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SIMSYCL_INSTALL_DIR }}
+          key: windows-simsycl-${{ matrix.compiler }}-${{ matrix.build_type }}-${{ env.SIMSYCL_COMMIT }}
+
+      - name: Clone SimSYCL
+        if: steps.cache-simsycl.outputs.cache-hit != 'true'
+        run: git clone --depth 1 https://github.com/celerity/SimSYCL.git "${{ env.SIMSYCL_DIR }}"
+
+      - name: Configure SimSYCL
+        if: steps.cache-simsycl.outputs.cache-hit != 'true'
+        run: >
+          cmake -S "${{ env.SIMSYCL_DIR }}" -B "${{ env.SIMSYCL_DIR }}\build" -G Ninja
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DCMAKE_C_COMPILER=${{ matrix.compiler }}.exe
+          -DCMAKE_CXX_COMPILER=${{ matrix.compiler }}.exe
+          -DCMAKE_PREFIX_PATH="${{ env.BOOST_PREFIX_PATH }}"
+          -DCMAKE_INSTALL_PREFIX="${{ env.SIMSYCL_INSTALL_DIR }}"
+          "-DCMAKE_EXE_LINKER_FLAGS=${{ env.EXTRA_LINKER_FLAGS }}"
+          "-DCMAKE_SHARED_LINKER_FLAGS=${{ env.EXTRA_LINKER_FLAGS }}"
+          "-DCMAKE_MODULE_LINKER_FLAGS=${{ env.EXTRA_LINKER_FLAGS }}"
+
+      - name: Build SimSYCL
+        if: steps.cache-simsycl.outputs.cache-hit != 'true'
+        run: cmake --build "${{ env.SIMSYCL_DIR }}\build"
+
+      - name: Run SimSYCL's own test suite
+        if: steps.cache-simsycl.outputs.cache-hit != 'true'
+        run: '& "${{ env.SIMSYCL_DIR }}\build\test\tests.exe" --reporter compact'
+
+      - name: Install SimSYCL
+        if: steps.cache-simsycl.outputs.cache-hit != 'true'
+        run: cmake --install "${{ env.SIMSYCL_DIR }}\build"
+
+      - name: Configure Celerity
+        run: >
+          cmake -S "${{ github.workspace }}" -B "${{ github.workspace }}\build" -G Ninja
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DCMAKE_C_COMPILER=${{ matrix.compiler }}.exe
+          -DCMAKE_CXX_COMPILER=${{ matrix.compiler }}.exe
+          -DCMAKE_PREFIX_PATH="${{ env.SIMSYCL_INSTALL_DIR }};${{ env.BOOST_PREFIX_PATH }}"
+          -DCELERITY_SYCL_IMPL=SimSYCL
+          -DCELERITY_ENABLE_MPI=OFF
+          -DCELERITY_USE_MIMALLOC=OFF
+          "-DCMAKE_EXE_LINKER_FLAGS=${{ env.EXTRA_LINKER_FLAGS }}"
+          "-DCMAKE_SHARED_LINKER_FLAGS=${{ env.EXTRA_LINKER_FLAGS }}"
+          "-DCMAKE_MODULE_LINKER_FLAGS=${{ env.EXTRA_LINKER_FLAGS }}"
+
+      - name: Build Celerity
+        run: cmake --build "${{ github.workspace }}\build"
+
+      - name: Run unit tests
+        run: '& "${{ github.workspace }}\build\test\all_tests.exe" --reporter compact'
+
+      - name: Upload build logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.compiler }}-${{ matrix.build_type }}-simsycl-build-logs
+          path: |
+            ${{ github.workspace }}\build\CMakeFiles\CMakeError.log
+            ${{ github.workspace }}\build\CMakeFiles\CMakeOutput.log
+            ${{ env.SIMSYCL_DIR }}\build\CMakeFiles\CMakeError.log
+            ${{ env.SIMSYCL_DIR }}\build\CMakeFiles\CMakeOutput.log
+          if-no-files-found: ignore
