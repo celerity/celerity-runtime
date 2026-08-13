@@ -12,6 +12,7 @@ jobs:
         ruby-version: '3.0'
     - name: Install plot generation dependencies
       run: |
+        sudo apt-get update
         sudo apt-get install libmagickwand-dev
         gem install gruff
     - name: Find previous perf comment
