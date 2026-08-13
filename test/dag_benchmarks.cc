@@ -402,7 +402,6 @@ template <typename BenchmarkContext>
 	step(up, u);
 
 	auto t = 0.0;
-	size_t i = 0;
 	while(t < T) {
 		step(up, u);
 		std::swap(u, up);

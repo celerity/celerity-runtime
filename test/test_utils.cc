@@ -242,7 +242,9 @@ namespace celerity::test_utils_detail {
 
 const char* const expected_runtime_init_warnings_regex = "Celerity has detected that only .* logical cores are available to this process.*|"
                                                          "Celerity detected more than one node \\(MPI rank\\) on this host, which is not recommended.*|"
-                                                         "Instrumentation for profiling with Tracy is enabled\\. Performance may be negatively impacted\\.|";
+                                                         "Instrumentation for profiling with Tracy is enabled\\. Performance may be negatively impacted\\.|"
+                                                         "Insufficient logical cores available for thread pinning \\(required .* starting from .*, .* "
+                                                         "available\\), disabling pinning\\. Performance may be negatively impacted\\.|";
 
 const char* const expected_device_enumeration_warnings_regex = "Found fewer devices .* than local nodes .*, multiple nodes will use the same device.*";
 
@@ -253,7 +255,7 @@ const char* const expected_backend_fallback_warnings_regex =
 const char* const expected_dry_run_executor_warnings_regex = "Encountered a \"fence\" command while \"CELERITY_DRY_RUN_NODES\" is set. The result of this "
                                                              "operation will not match the expected output of an actual run.";
 
-const char* const expected_executor_progress_warnings_regex = "\\[executor\\] no progress for .* s, might be stuck.*";
+[[maybe_unused]] const char* const expected_executor_progress_warnings_regex = "\\[executor\\] no progress for .* s, might be stuck.*";
 
 const char* const expected_starvation_warning_regex =
     "The executor was starved for instructions for [0-9]+\\.[0-9] .{0,2}s, or [0-9]+\\.[0-9]% of the total active time of [0-9]+\\.[0-9] .{0,2}s. This may "

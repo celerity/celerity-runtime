@@ -453,7 +453,7 @@ TEST_CASE("eagerly-assignable instructions become immediately assignable once th
 	out_of_order_test_context octx(1);
 	auto k1 = octx.device_kernel({}, device_id(0), /* priority */ 0);
 	auto k2 = octx.device_kernel({k1}, device_id(0), /* priority */ 1);
-	auto k3 = octx.device_kernel({k1}, device_id(0), /* priority */ 0);
+	[[maybe_unused]] auto k3 = octx.device_kernel({k1}, device_id(0), /* priority */ 0);
 	auto k4 = octx.device_kernel({k2}, device_id(0), /* priority */ 2);
 
 	const auto first = octx.assign_one();

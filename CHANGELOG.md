@@ -21,6 +21,7 @@ This release is WIP
 ### Internal
 
 - Adapt tests for Windows by disabling implementation-dependent graph printing tests and increasing tolerances for executor timing tests (#337)
+- Add automated CI compilation and testing of Celerity for Windows with clang-cl (#341)
 
 ## [0.7.0] - 2025-08-18
 

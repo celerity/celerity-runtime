@@ -148,15 +148,25 @@ TEST_CASE("a warning is emitted if insufficient cores are available", "[affinity
 }
 
 TEST_CASE("a warning is emitted if hardcoded threads are not available to this process", "[affinity]") {
+	const core_set process_mask = {0, 1, 2, 3, 4};
+	if(!have_cores(process_mask)) {
+		SKIP("Skipping test because not all needed cores are available");
+		return;
+	}
 	test_utils::allow_max_log_level(detail::log_level::warn);
-	raii_affinity_masking mask({0, 1, 2, 3, 4});
+	raii_affinity_masking mask(process_mask);
 
 	detail::thread_pinning::thread_pinner pinner({.enabled = true, .use_backend_device_submission_threads = false, .hardcoded_core_ids = {4, 5, 6}});
 	CHECK(test_utils::log_contains_substring(detail::log_level::warn, "Not all hardcoded core IDs are available, downgrading to auto-pinning."));
 }
 
 TEST_CASE("do not plan for device submission threads if they are unused", "[affinity]") {
-	raii_affinity_masking mask({1, 2, 3, 4});
+	const core_set process_mask = {1, 2, 3, 4};
+	if(!have_cores(process_mask)) {
+		SKIP("Skipping test because not all needed cores are available");
+		return;
+	}
+	raii_affinity_masking mask(process_mask);
 	const detail::thread_pinning::runtime_configuration cfg = {.enabled = true, .num_devices = 10, .use_backend_device_submission_threads = false};
 	detail::thread_pinning::thread_pinner pinner(cfg);
 	SUCCEED(); // no additional check, a warning will make the test fail if we do not handle this case correctly
