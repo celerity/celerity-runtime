@@ -186,7 +186,7 @@ sycl_backend::sycl_backend(const std::vector<sycl::device>& devices, const confi
 		for(device_id did = 0; did < m_impl->system.devices.size(); ++did) {
 			m_impl->devices[did].submission_thread.emplace(named_threads::task_type_device_submitter(did.value), m_impl->config.profiling);
 			// no need to wait for the event -> will happen before the first task is submitted
-			(void)m_impl->devices[did].submission_thread->submit([did] { closure_hydrator::make_available(); });
+			(void)m_impl->devices[did].submission_thread->submit([] { closure_hydrator::make_available(); });
 		}
 	}
 }

@@ -255,7 +255,7 @@ const char* const expected_backend_fallback_warnings_regex =
 const char* const expected_dry_run_executor_warnings_regex = "Encountered a \"fence\" command while \"CELERITY_DRY_RUN_NODES\" is set. The result of this "
                                                              "operation will not match the expected output of an actual run.";
 
-const char* const expected_executor_progress_warnings_regex = "\\[executor\\] no progress for .* s, might be stuck.*";
+[[maybe_unused]] const char* const expected_executor_progress_warnings_regex = "\\[executor\\] no progress for .* s, might be stuck.*";
 
 const char* const expected_starvation_warning_regex =
     "The executor was starved for instructions for [0-9]+\\.[0-9] .{0,2}s, or [0-9]+\\.[0-9]% of the total active time of [0-9]+\\.[0-9] .{0,2}s. This may "
