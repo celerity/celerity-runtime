@@ -430,7 +430,10 @@ add_sycl_to_target(
 )
 
 if(MSVC)
-  target_compile_options(celerity_runtime PRIVATE /MP /W3)
+  target_compile_options(celerity_runtime PRIVATE /W4 /wd4100 /we4715 /we4700)
+  if(CMAKE_GENERATOR MATCHES "Visual Studio")
+    target_compile_options(celerity_runtime PRIVATE /MP)
+  endif()
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   target_compile_options(celerity_runtime PRIVATE -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=init-self -Werror=undef)
 endif()
