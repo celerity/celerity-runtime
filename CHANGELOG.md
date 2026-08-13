@@ -6,9 +6,17 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic
 Versioning](http://semver.org/spec/v2.0.0.html).
 
-## [WIP]
+## [0.7.1] - 2026-08-xx
 
-This release is WIP
+This minor release focuses mainly on compatibility with Windows including some longstanding bugfixes as drive by.
+
+We recommend using the following SYCL version with this release: 
+
+- DPC++: ad494e9d or newer
+- AdaptiveCpp (formerly hipSYCL): v24.06
+- SimSYCL: master
+
+See our [platform support guide](docs/platform-support.md) for a complete list of all officially supported configurations.
 
 ### Added
 
