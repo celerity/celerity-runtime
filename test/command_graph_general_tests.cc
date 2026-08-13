@@ -345,7 +345,6 @@ TEST_CASE("all commands have a transitive true-dependency on the preceding epoch
 
 TEST_CASE("fences introduce dependencies on host objects", "[command_graph_generator][command-graph][fence]") {
 	const size_t num_nodes = 2;
-	const range<1> node_range{num_nodes};
 
 	cdag_test_context cctx(num_nodes);
 
@@ -362,7 +361,6 @@ TEST_CASE("fences introduce dependencies on host objects", "[command_graph_gener
 
 TEST_CASE("fences introduce dependencies on buffers", "[command_graph_generator][command-graph][fence]") {
 	const size_t num_nodes = 2;
-	const range<1> node_range{num_nodes};
 
 	cdag_test_context cctx(num_nodes);
 
