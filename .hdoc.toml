@@ -2,7 +2,7 @@
 
 [project]
 name = "Celerity"
-version = "0.7.0"
+version = "0.7.1"
 
 # Optional, adding this will enable direct links from the documentation
 # to your source code.
