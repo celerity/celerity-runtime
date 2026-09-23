@@ -38,6 +38,8 @@ set(TEST_TARGETS
   command_graph_granularity_tests
   command_graph_reduction_tests
   command_graph_transfer_tests
+  compression_algorithm_tests
+  compression_interface_tests
   debug_naming_tests
   double_buffered_queue_tests
   executor_tests

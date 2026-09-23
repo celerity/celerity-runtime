@@ -33,8 +33,6 @@ namespace detail {
 		}
 	}
 
-	// Combined descriptor for accessor extension points.
-	// It currently bundles compression, range-mapper type, and the compile-time dependency description.
 	template <typename Compression, detail::range_mapper_type RangeMapperType, typename ExtensionArg = std::tuple<>>
 	struct accessor_extension {
 		using compression_type = Compression;
