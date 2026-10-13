@@ -181,6 +181,14 @@ struct sycl_backend::impl {
 };
 
 sycl_backend::sycl_backend(const std::vector<sycl::device>& devices, const configuration& config) : m_impl(new impl(devices, config)) {
+#if CELERITY_WORKAROUND(ACPP)
+	// AdaptiveCpp tracks USM allocations in a function-local static that is created by the first allocation. The runtime (and with it, all backend
+	// allocations) is torn down from an atexit handler that is registered right after the backend has been constructed. Unless the tracker already exists
+	// at that point it will be destroyed before that handler runs, and every sycl::free() during shutdown then operates on a dead object, which corrupts the
+	// heap (observed as a hang in release builds and a segfault in debug builds). Allocating once here establishes the correct destruction order.
+	sycl::free(sycl::aligned_alloc_host(alignof(std::max_align_t), 1, m_impl->host.sycl_context), m_impl->host.sycl_context);
+#endif
+
 	// Initialize a submission thread with hydrator for each device, if they are enabled
 	if(m_impl->config.per_device_submission_threads) {
 		for(device_id did = 0; did < m_impl->system.devices.size(); ++did) {
